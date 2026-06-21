@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lincoln UAM — Demand, Constraints &amp; Derived Vertiports</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <style>
+    :root { --bg:#0f1722; --panel:#16212e; --ink:#e8eef5; --muted:#9fb0c2; --line:#27384a; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #app { display: grid; grid-template-columns: 350px 1fr; height: 100vh; }
+    #side { background: var(--bg); color: var(--ink); overflow-y: auto; border-right: 1px solid var(--line); }
+    #map { height: 100vh; }
+    .pad { padding: 16px 18px; }
+    h1 { font-size: 17px; margin: 0 0 4px; line-height: 1.25; }
+    .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; line-height:1.4; }
+    h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+         margin: 16px 0 8px; border-top: 1px solid var(--line); padding-top: 11px; }
+    label.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); margin: 4px 0; cursor: pointer; }
+    label.toggle .cnt { margin-left:auto; color:var(--muted); font-size:11.5px; }
+    .sw { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.3); }
+    .note { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 9px; }
+    .pill { display:inline-block; background:var(--panel); border:1px solid var(--line); border-radius:999px;
+            padding:2px 9px; font-size:11px; color:var(--muted); margin:2px 4px 2px 0; }
+    .step { font-size:12px; color:var(--muted); line-height:1.5; margin:3px 0; }
+    .step b { color:var(--ink); }
+    .leaflet-popup-content { font-size: 13px; line-height: 1.45; }
+    .vlabel { font-weight:700; color:#fff; font-size:11px; text-align:center; line-height:24px; }
+    code { background:var(--panel); padding:1px 5px; border-radius:4px; font-size:11.5px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="pad">
+      <h1>Lincoln UAM — GIS Suitability</h1>
+      <p class="sub">Real OpenStreetMap demand + CAA constraints → <b>derived</b> vertiport sites. Section 3 (Ly).</p>
+
+      <div>
+        <span class="pill" id="pill-pois">… POIs</span>
+        <span class="pill">Real OSM data</span>
+        <span class="pill">8 derived sites</span>
+      </div>
+
+      <h2>Method (read me)</h2>
+      <div class="step"><b>1.</b> Map real demand from OpenStreetMap (hospitals, schools, restaurants, parks, civic, transport, retail).</div>
+      <div class="step"><b>2.</b> Overlay constraints — Cathedral/Castle no-fly, RAF Waddington 5 km FRZ + MATZ.</div>
+      <div class="step"><b>3.</b> Score a 120 m grid by weighted demand within 650 m, minus exclusions, +open-space bonus.</div>
+      <div class="step"><b>4.</b> Pick spaced local maxima → <b>V1–V8 vertiport candidates</b>.</div>
+
+      <h2>Demand layers (real OSM)</h2>
+      <div id="cat-toggles"></div>
+
+      <h2>Analysis layers</h2>
+      <label class="toggle"><input type="checkbox" id="t-heat" checked> Demand heatmap</label>
+      <label class="toggle"><input type="checkbox" id="t-cand" checked> Derived vertiports (V1–V8)</label>
+      <label class="toggle"><input type="checkbox" id="t-obs" checked> Obstacle no-fly zones</label>
+      <label class="toggle"><input type="checkbox" id="t-air" checked> Military airspace (FRZ/MATZ)</label>
+
+      <p class="note">
+        <b>Data:</b> live OpenStreetMap via Overpass API (run <code>python3 scripts/fetch_and_analyze.py</code> to refresh).
+        Airfield airspace radii use standard CAA buffer sizes around real RAF coordinates.
+        Academic case study — verify against the UK AIP before any real operation.
+      </p>
+    </div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="data.js"></script>
+<script>
+  const D = window.LINCOLN_DATA;
+  if (!D) {
+    document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif">' +
+      '<h2>No data.js found</h2><p>Run <code>python3 scripts/fetch_and_analyze.py</code> first.</p></div>';
+    throw new Error('LINCOLN_DATA missing');
+  }
+  const CATS = D.meta.categories;
+
+  const map = L.map('map', { zoomControl: true }).setView(D.meta.center, 13);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
+  }).addTo(map);
+
+  document.getElementById('pill-pois').textContent = D.demand.features.length + ' POIs';
+
+  // ---- Demand POI layers, one per category ----
+  const catLayers = {};
+  Object.keys(CATS).forEach(cat => { catLayers[cat] = L.layerGroup(); });
+
+  D.demand.features.forEach(f => {
+    const cat = f.properties.cat;
+    if (!catLayers[cat]) return;
+    const [lon, lat] = f.geometry.coordinates;
+    L.circleMarker([lat, lon], {
+      radius: 4, color: '#0b1320', weight: 0.6, fillColor: CATS[cat].color, fillOpacity: 0.85
+    }).bindPopup(`<b>${f.properties.name || '(unnamed)'}</b><br>${CATS[cat].label} · weight ${CATS[cat].weight}`)
+      .addTo(catLayers[cat]);
+  });
+
+  // category toggles UI (default: heavy categories on, food/park dimmed off to reduce clutter)
+  const defaultOn = { food:false, park:false };
+  const tgWrap = document.getElementById('cat-toggles');
+  Object.keys(CATS).forEach(cat => {
+    const on = defaultOn[cat] !== false;
+    const count = D.demand.features.filter(f => f.properties.cat === cat).length;
+    const id = 'cat-' + cat;
+    const lab = document.createElement('label');
+    lab.className = 'toggle';
+    lab.innerHTML = `<input type="checkbox" id="${id}" ${on?'checked':''}>` +
+      `<span class="sw" style="background:${CATS[cat].color}"></span>${CATS[cat].label}` +
+      `<span class="cnt">${count}</span>`;
+    tgWrap.appendChild(lab);
+    if (on) catLayers[cat].addTo(map);
+    lab.querySelector('input').addEventListener('change', e =>
+      e.target.checked ? catLayers[cat].addTo(map) : map.removeLayer(catLayers[cat]));
+  });
+
+  // ---- Demand heatmap ----
+  const heat = L.heatLayer(D.heat, { radius: 28, blur: 22, maxZoom: 15,
+    gradient: {0.2:'#2c3e91', 0.4:'#2980b9', 0.6:'#27ae60', 0.8:'#f1c40f', 1.0:'#e74c3c'} });
+  heat.addTo(map);
+
+  // ---- Obstacles ----
+  const obstacles = L.layerGroup();
+  D.obstacles.features.forEach(f => {
+    const [lon, lat] = f.geometry.coordinates; const p = f.properties;
+    L.circle([lat, lon], { radius: p.radius, color:'#e74c3c', weight:2, fillColor:'#e74c3c', fillOpacity:.25 })
+      .bindPopup(`<b>${p.name}</b><br>${p.note}`).addTo(obstacles);
+  });
+  obstacles.addTo(map);
+
+  // ---- Airspace ----
+  const airspace = L.layerGroup();
+  D.airspace.features.forEach(f => {
+    const [lon, lat] = f.geometry.coordinates; const p = f.properties;
+    if (p.matz) L.circle([lat, lon], { radius:p.matz, color:'#9b59b6', weight:2, dashArray:'8,8',
+        fillColor:'#9b59b6', fillOpacity:.08 })
+      .bindPopup(`<b>${p.name} — MATZ (~5 NM)</b><br>Military ATZ influence. Coordinate with Approach.`).addTo(airspace);
+    L.circle([lat, lon], { radius:p.frz, color:'#f1c40f', weight:2,
+        dashArray: p.status==='closing'?'3,5':null, fillColor:'#f1c40f',
+        fillOpacity: p.status==='closing'?.07:.16 })
+      .bindPopup(`<b>${p.name} — FRZ (5 km)</b> · ${p.status}<br>${p.note}`).addTo(airspace);
+    L.circleMarker([lat, lon], { radius:6, color:'#fff', weight:2, fillColor:'#f1c40f', fillOpacity:1 })
+      .bindPopup(`<b>${p.name}</b> (${p.status})<br>${p.note}`).addTo(airspace);
+  });
+  airspace.addTo(map);
+
+  // ---- Derived vertiport candidates ----
+  const candidates = L.layerGroup();
+  const vIcon = (id) => L.divIcon({ className:'',
+    html:`<div style="width:26px;height:26px;border-radius:50%;background:#16a34a;border:3px solid #fff;
+          box-shadow:0 0 0 1px rgba(0,0,0,.5)"><div class="vlabel">${id.replace('V','')}</div></div>`,
+    iconSize:[26,26], iconAnchor:[13,13] });
+
+  D.candidates.features.forEach(f => {
+    const [lon, lat] = f.geometry.coordinates; const p = f.properties;
+    const served = Object.entries(p.served).sort((a,b)=>b[1]-a[1])
+      .map(([k,v]) => `${v}× ${CATS[k]?CATS[k].label:k}`).join('<br>');
+    const anchors = (p.anchors||[]).length ? `<br><i>Anchors:</i> ${p.anchors.join(', ')}` : '';
+    L.marker([lat, lon], { icon: vIcon(p.id), zIndexOffset: 1000 })
+      .bindPopup(`<b>${p.id} — derived vertiport</b><br>Suitability score <b>${p.score}</b>`+
+        `${p.open?' · near open space ✔':''}<br><br><b>Demand within 650 m:</b><br>${served}${anchors}`)
+      .addTo(candidates);
+  });
+  candidates.addTo(map);
+
+  // ---- toggles ----
+  const wire = (id, layer) => document.getElementById(id).addEventListener('change',
+    e => e.target.checked ? layer.addTo(map) : map.removeLayer(layer));
+  wire('t-heat', heat);
+  wire('t-cand', candidates);
+  wire('t-obs', obstacles);
+  wire('t-air', airspace);
+
+  map.fitBounds(L.latLngBounds([[D.meta.bbox[0], D.meta.bbox[1]],[D.meta.bbox[2], D.meta.bbox[3]]]).pad(0.02));
+</script>
+</body>
+</html>
