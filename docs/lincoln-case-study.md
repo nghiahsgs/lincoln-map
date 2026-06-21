@@ -3,7 +3,7 @@
 **Author / Role:** Ly — *Lincoln Context & GIS Analyst (supporting realism and location-specific details).*
 **Purpose:** Provide the real-world constraints (urban layout, airspace, weather, demand) and a **data-driven GIS method** that derives candidate vertiport locations — so the technical sections are grounded in an actual operating environment, not guesswork.
 
-> **Method in one line:** *map real demand → overlay real constraints → score the space → derive vertiports.* We do **not** hand-pick sites; the candidates V1–V8 come out of a suitability model fed with live OpenStreetMap data.
+> **Method in one line:** *map real demand → overlay real constraints → score the space → derive vertiports.* We do **not** hand-pick sites; the candidate sites come out of a suitability model fed with live OpenStreetMap data.
 
 ---
 
@@ -77,30 +77,33 @@ Implemented in `scripts/fetch_and_analyze.py`:
 2. **Score each cell** by weighted demand within a **650 m** catchment, using linear distance decay: `score += weight × (1 − dist/650)`.
 3. **Hard-exclude** any cell within the Cathedral/Castle no-fly buffers or inside **RAF Waddington's 5 km FRZ**.
 4. **Open-space bonus** (+20%) if a park or car park lies within 220 m — i.e. a realistic place to actually land.
-5. **Non-maximum suppression** with a **750 m** minimum spacing → the top spaced peaks become candidates **V1–V8**.
+5. **Coverage-driven selection** (the important bit): pick spaced local maxima (**700 m** apart) and **keep adding** vertiports until **85% of weighted demand** is within **900 m** of a site, or the next site scores below 5% of the best. **The number of vertiports is therefore an output, not a fixed cap.**
 
-This is transparent and reproducible: change a weight or a buffer, re-run, and the map updates.
+This is transparent and reproducible: change a weight, a buffer, or the coverage target, re-run, and both the count and the map update.
+
+> **Why this matters:** an earlier draft hard-capped the result at 8 sites — that was an arbitrary stop, not a finding. With the coverage rule, the latest run derives **19 vertiports for ~87% demand coverage**. Lowering the target or widening the access radius gives fewer, larger hubs; raising it gives a denser network.
 
 ---
 
-## 3.6 Result — derived vertiport candidates
+## 3.6 Result — derived vertiport network
 
-From the latest run (scores are relative suitability, higher = better):
+The latest run derives **19 vertiports** reaching **~87% weighted demand coverage**. They form a natural tier structure (scores are relative suitability, higher = better):
 
-| ID | Suitability | What it serves (within 650 m) | Read |
-|----|:-----------:|-------------------------------|------|
-| **V1** | 297 | 5 hospitals, 3 transport, 6 universities, dense centre | Brayford / city-centre core — top demand, but tight congested-area siting |
-| **V2** | 157 | 5 hospitals, 13 universities, 1 transport | University of Lincoln campus — strong, near open space |
-| **V3** | 93 | civic + colleges + 1 hospital | Inner-city secondary node |
-| **V4** | 52 | 4 universities, science park | Science/innovation park — clean siting |
-| **V5** | 45 | 4 hospitals, 9 universities | Medical + campus edge |
-| **V6** | 42 | **Lincoln Central Bus Station**, 3 transport | Multimodal interchange hub |
-| **V7** | 38 | **Lincoln County Hospital** | Dedicated medical eVTOL pad |
-| **V8** | 34 | parks + local | Outer-ring / green-edge option |
+**Tier 1 — primary hubs (highest demand, build first):**
 
-**Recommendation to the technical team:** start with a small network of **V6 (multimodal hub)** + **V2 (university)** + **V7 (hospital)** — they cover the three highest-value, clearly-justified use-cases while staying out of the Cathedral no-fly and the Waddington FRZ. V1 has the highest raw demand but needs the most careful congested-area handling.
+| ID | Suitability | Cumulative coverage | Anchors it serves (within 650 m) |
+|----|:-----------:|:-------------------:|----------------------------------|
+| **V1** | 297 | 48% | City-centre / Brayford core — hospitals, transport, university (highest raw demand; needs careful congested-area handling) |
+| **V2** | 157 | 57% | University of Lincoln campus |
+| **V3** | 93 | 61% | Inner-city civic + colleges |
+| **V4** | 61 | 62% | **Lincoln Central Bus Station** — multimodal interchange |
+| **V7** | 38 | 65% | **Lincoln County Hospital** — medical eVTOL pad |
 
-*(Exact scores/anchors refresh whenever the script is re-run against current OSM.)*
+**Tier 2 — local / coverage pads (V5–V6, V8–V19):** fill out the network toward the 85% target, anchored on neighbourhood surgeries, secondary campuses and parks (e.g. Richmond Medical Centre, Lindum/Minster Medical Practice, Bishop GrosseTeste University).
+
+**Recommendation to the technical team:** phase the rollout — **launch Tier 1 (V1–V4, V7)** to capture the multimodal hub, university and hospital use-cases, then extend to Tier 2 as demand proves out. Every site stays clear of the Cathedral no-fly and the Waddington FRZ by construction.
+
+*(Exact count, scores and anchors refresh whenever the script is re-run against current OSM, or when the coverage target / weights are changed.)*
 
 ---
 
@@ -111,4 +114,4 @@ From the latest run (scores are relative suitability, higher = better):
 - **Build toward the multimodal hub, university and hospital first**; keep clear of the Cathedral ridge and Waddington's MATZ/FRZ.
 - **Design for a 120 m AGL ceiling**, CAA coordination with RAF Waddington, and weather downtime from fog and ridge turbulence.
 
-See `index.html` for the interactive map (toggle demand layers, heatmap, constraints, and V1–V8). Re-run `python3 scripts/fetch_and_analyze.py` to refresh all data.
+See `index.html` for the interactive map (toggle demand layers, heatmap, constraints, and the derived vertiports). Re-run `python3 scripts/fetch_and_analyze.py` to refresh all data.

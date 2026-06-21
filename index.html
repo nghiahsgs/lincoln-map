@@ -41,21 +41,21 @@
       <div>
         <span class="pill" id="pill-pois">… POIs</span>
         <span class="pill">Real OSM data</span>
-        <span class="pill">8 derived sites</span>
+        <span class="pill" id="pill-sites">… sites</span>
       </div>
 
       <h2>Method (read me)</h2>
       <div class="step"><b>1.</b> Map real demand from OpenStreetMap (hospitals, schools, restaurants, parks, civic, transport, retail).</div>
       <div class="step"><b>2.</b> Overlay constraints — Cathedral/Castle no-fly, RAF Waddington 5 km FRZ + MATZ.</div>
       <div class="step"><b>3.</b> Score a 120 m grid by weighted demand within 650 m, minus exclusions, +open-space bonus.</div>
-      <div class="step"><b>4.</b> Pick spaced local maxima → <b>V1–V8 vertiport candidates</b>.</div>
+      <div class="step"><b>4.</b> Keep adding spaced sites until <b>85% demand coverage</b> → the count is derived, not fixed.</div>
 
       <h2>Demand layers (real OSM)</h2>
       <div id="cat-toggles"></div>
 
       <h2>Analysis layers</h2>
       <label class="toggle"><input type="checkbox" id="t-heat" checked> Demand heatmap</label>
-      <label class="toggle"><input type="checkbox" id="t-cand" checked> Derived vertiports (V1–V8)</label>
+      <label class="toggle"><input type="checkbox" id="t-cand" checked> Derived vertiports</label>
       <label class="toggle"><input type="checkbox" id="t-obs" checked> Obstacle no-fly zones</label>
       <label class="toggle"><input type="checkbox" id="t-air" checked> Military airspace (FRZ/MATZ)</label>
 
@@ -88,6 +88,8 @@
   }).addTo(map);
 
   document.getElementById('pill-pois').textContent = D.demand.features.length + ' POIs';
+  document.getElementById('pill-sites').textContent =
+    D.candidates.features.length + ' sites · ' + Math.round((D.meta.coverage||0)*100) + '% coverage';
 
   // ---- Demand POI layers, one per category ----
   const catLayers = {};
@@ -163,9 +165,10 @@
     const served = Object.entries(p.served).sort((a,b)=>b[1]-a[1])
       .map(([k,v]) => `${v}× ${CATS[k]?CATS[k].label:k}`).join('<br>');
     const anchors = (p.anchors||[]).length ? `<br><i>Anchors:</i> ${p.anchors.join(', ')}` : '';
+    const cov = p.coverage!=null ? ` · cumulative coverage ${Math.round(p.coverage*100)}%` : '';
     L.marker([lat, lon], { icon: vIcon(p.id), zIndexOffset: 1000 })
       .bindPopup(`<b>${p.id} — derived vertiport</b><br>Suitability score <b>${p.score}</b>`+
-        `${p.open?' · near open space ✔':''}<br><br><b>Demand within 650 m:</b><br>${served}${anchors}`)
+        `${p.open?' · near open space ✔':''}${cov}<br><br><b>Demand within 650 m:</b><br>${served}${anchors}`)
       .addTo(candidates);
   });
   candidates.addTo(map);

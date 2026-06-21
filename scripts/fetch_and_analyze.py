@@ -125,13 +125,19 @@ def metres(a, b):
 
 def suitability(points):
     """Grid-based suitability. Each cell scored by weighted demand within RADIUS,
-    minus hard exclusion (Cathedral / Waddington FRZ). Candidates = local maxima
-    on/near open space, kept apart by MIN_SEP."""
-    RADIUS = 650.0          # demand catchment (m)
-    MIN_SEP = 750.0         # min spacing between vertiports (m)
+    minus hard exclusion (Cathedral / Waddington FRZ). Candidates = spaced local
+    maxima. The NUMBER of vertiports is NOT a fixed cap — it is driven by demand
+    coverage: keep adding sites until TARGET_COVER of weighted demand is within
+    ACCESS metres of a vertiport, or the next best site is too low-demand to justify."""
+    RADIUS = 650.0          # demand catchment used for scoring (m)
+    MIN_SEP = 700.0         # min spacing between vertiports (m)
     STEP_M = 120.0          # grid resolution (m)
     CATHEDRAL_NOFLY = 400.0 # hard no-fly around Cathedral/Castle ridge (m)
     WADDINGTON_FRZ = 5000.0 # CAA flight restriction zone (m)
+    ACCESS = 900.0          # walkable access to a vertiport (m) -> coverage radius
+    TARGET_COVER = 0.85     # stop once 85% of weighted demand is covered
+    SCORE_FLOOR_FRAC = 0.05 # ...or once next site scores <5% of the best site
+    MAX_SITES = 40          # safety cap only (not the real limit)
 
     demand = [p for p in points if p["cat"] in CATEGORIES]
     open_space = [p for p in points if p["cat"] in ("park", "parking")]
@@ -169,15 +175,31 @@ def suitability(points):
 
     cells.sort(key=lambda x: -x["score"])
 
-    # greedy non-maximum suppression -> spaced candidates
+    # coverage-driven greedy selection (count emerges from the data, not a cap)
+    total_w = sum(CATEGORIES[p["cat"]]["weight"] for p in demand) or 1.0
+    top_score = cells[0]["score"] if cells else 0.0
+    floor = SCORE_FLOOR_FRAC * top_score
+    covered = set()      # indices of demand POIs already within ACCESS of a site
+    cov_w = 0.0
     chosen = []
     for cell in cells:
         cc = (cell["lat"], cell["lon"])
         if metres(cc, WADDINGTON) < WADDINGTON_FRZ:
             continue
-        if all(metres(cc, (k["lat"], k["lon"])) >= MIN_SEP for k in chosen):
-            chosen.append(cell)
-        if len(chosen) >= 8:
+        if not all(metres(cc, (k["lat"], k["lon"])) >= MIN_SEP for k in chosen):
+            continue
+        chosen.append(cell)
+        for i, p in enumerate(demand):
+            if i not in covered and metres(cc, (p["lat"], p["lon"])) < ACCESS:
+                covered.add(i)
+                cov_w += CATEGORIES[p["cat"]]["weight"]
+        cell["coverage"] = round(cov_w / total_w, 3)
+        # stop conditions
+        if len(chosen) >= MAX_SITES:
+            break
+        if cell["coverage"] >= TARGET_COVER:
+            break
+        if cell["score"] < floor and len(chosen) >= 3:
             break
 
     # describe each candidate by what demand it serves
@@ -227,9 +249,11 @@ def main():
     cand_features = [
         point_feature(k["lat"], k["lon"],
                       dict(id=k["id"], score=k["score"], open=k["open"],
+                           coverage=k.get("coverage"),
                            served=k["served"], anchors=k["anchors"]))
         for k in candidates
     ]
+    final_cover = candidates[-1].get("coverage") if candidates else 0
 
     obstacles = fc([
         point_feature(*CATHEDRAL, dict(name="Lincoln Cathedral",
@@ -249,9 +273,11 @@ def main():
     meta = dict(
         bbox=BBOX, center=CENTER, categories=CATEGORIES,
         counts=counts, generated="run scripts/fetch_and_analyze.py",
-        method=("Candidate vertiports = grid suitability model: weighted real-OSM demand "
-                "within 650 m, minus hard exclusion (Cathedral/Castle 400 m no-fly, "
-                "Waddington 5 km FRZ), open-space bonus, 750 m min spacing."),
+        n_sites=len(cand_features), coverage=final_cover,
+        method=("Vertiport COUNT is coverage-driven (not a fixed cap): keep adding "
+                "spaced (700 m) local maxima of weighted real-OSM demand until 85% of "
+                "weighted demand is within 900 m of a site, or the next site scores "
+                "<5% of the best. Exclusions: Cathedral/Castle 400 m no-fly, Waddington 5 km FRZ."),
     )
 
     payload = dict(
@@ -269,11 +295,12 @@ def main():
         json.dump(payload, f, ensure_ascii=False)
         f.write(";\n")
     print(f"[write] {DATA_JS}", file=sys.stderr)
-    print(f"[result] {len(demand_features)} demand POIs, "
-          f"{len(cand_features)} candidate vertiports.", file=sys.stderr)
+    print(f"[result] {len(demand_features)} demand POIs -> "
+          f"{len(cand_features)} vertiports (coverage-driven), "
+          f"final demand coverage {final_cover:.0%}.", file=sys.stderr)
     for k in candidates:
-        print(f"   {k['id']}  score={k['score']:>6}  open={k['open']}  "
-              f"served={k['served']}  anchors={k['anchors']}", file=sys.stderr)
+        print(f"   {k['id']}  score={k['score']:>6}  cover={k.get('coverage'):.0%}  "
+              f"open={k['open']}  anchors={k['anchors']}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
