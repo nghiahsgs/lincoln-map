@@ -1,5 +1,7 @@
 # Lincoln UAM Case Study — Section 3 (GIS / Context)
 
+🌍 **Live map:** https://nghiahsgs.github.io/lincoln-map/
+
 Deliverables for **Section 3** of the group UAM/eVTOL report — *Lincoln Context & GIS Analyst (Ly)*.
 Provides the real-world constraints (urban layout, CAA airspace, weather, vertiport candidates and
 obstacle zones) that ground the technical sections in an actual operating environment.
