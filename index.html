@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lincoln UAM — Demand, Constraints &amp; Derived Vertiports</title>
+  <title>Lincoln UAM — Flight Route &amp; GIS Suitability</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <style>
     :root { --bg:#0f1722; --panel:#16212e; --ink:#e8eef5; --muted:#9fb0c2; --line:#27384a; }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    #app { display: grid; grid-template-columns: 350px 1fr; height: 100vh; }
+    #app { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
     #side { background: var(--bg); color: var(--ink); overflow-y: auto; border-right: 1px solid var(--line); }
     #map { height: 100vh; }
     .pad { padding: 16px 18px; }
@@ -21,6 +21,7 @@
     label.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); margin: 4px 0; cursor: pointer; }
     label.toggle .cnt { margin-left:auto; color:var(--muted); font-size:11.5px; }
     .sw { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.3); }
+    .swl { width:16px; height:0; border-top-width:3px; border-top-style:solid; flex:0 0 auto; }
     .note { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 9px; }
     .pill { display:inline-block; background:var(--panel); border:1px solid var(--line); border-radius:999px;
             padding:2px 9px; font-size:11px; color:var(--muted); margin:2px 4px 2px 0; }
@@ -29,35 +30,87 @@
     .leaflet-popup-content { font-size: 13px; line-height: 1.45; }
     .vlabel { font-weight:700; color:#fff; font-size:11px; text-align:center; line-height:24px; }
     code { background:var(--panel); padding:1px 5px; border-radius:4px; font-size:11.5px; }
+    /* tabs */
+    .tabs { display:flex; gap:6px; margin:0 0 12px; }
+    .tab { flex:1; text-align:center; font-size:12.5px; padding:8px 6px; border-radius:8px; cursor:pointer;
+           background:var(--panel); border:1px solid var(--line); color:var(--muted); }
+    .tab.active { background:#1f6feb22; border-color:#1f6feb; color:var(--ink); font-weight:600; }
+    .rt { font-size:12.5px; line-height:1.5; margin:8px 0; padding:8px 10px; border-radius:8px;
+          background:var(--panel); border:1px solid var(--line); }
+    .rt b { color:var(--ink); }
+    .rt .tag { float:right; font-size:11px; padding:1px 7px; border-radius:999px; }
+    .tag-bad { background:#e74c3c33; color:#ff9b8f; border:1px solid #e74c3c66; }
+    .tag-ok  { background:#16a34a33; color:#7ee2a8; border:1px solid #16a34a66; }
+    .hidden { display:none; }
   </style>
 </head>
 <body>
 <div id="app">
   <aside id="side">
     <div class="pad">
-      <h1>Lincoln UAM — GIS Suitability</h1>
-      <p class="sub">Real OpenStreetMap demand + CAA constraints → <b>derived</b> vertiport sites. Section 3 (Ly).</p>
+      <h1>Lincoln UAM — Data &amp; GIS</h1>
+      <p class="sub">Section 3 (Ly). Real OpenStreetMap data + CAA constraints.</p>
 
-      <div>
-        <span class="pill" id="pill-pois">… POIs</span>
-        <span class="pill">Real OSM data</span>
-        <span class="pill" id="pill-sites">… sites</span>
+      <div class="tabs">
+        <div class="tab active" id="tab-route" onclick="showTab('route')">🛫 Flight route</div>
+        <div class="tab" id="tab-city" onclick="showTab('city')">🗺️ City suitability</div>
       </div>
 
-      <h2>Method (read me)</h2>
-      <div class="step"><b>1.</b> Map real demand from OpenStreetMap (hospitals, schools, restaurants, parks, civic, transport, retail).</div>
-      <div class="step"><b>2.</b> Overlay constraints — Cathedral/Castle no-fly, RAF Waddington 5 km FRZ + MATZ.</div>
-      <div class="step"><b>3.</b> Score a 120 m grid by weighted demand within 650 m, minus exclusions, +open-space bonus.</div>
-      <div class="step"><b>4.</b> Keep adding spaced sites until <b>85% demand coverage</b> → the count is derived, not fixed.</div>
+      <!-- ================= ROUTE PANEL ================= -->
+      <div id="panel-route">
+        <p class="sub" id="route-sub">Metheringham → Castle View Restaurant, Lincoln.</p>
+        <div>
+          <span class="pill" id="pill-dist">… km direct</span>
+          <span class="pill" id="pill-emg">… emergency sites</span>
+        </div>
 
-      <h2>Demand layers (real OSM)</h2>
-      <div id="cat-toggles"></div>
+        <h2>The scenario</h2>
+        <div class="step"><b>1.</b> One eVTOL taxi flight: village pickup → a dinner table in Lincoln, then back.</div>
+        <div class="step"><b>2.</b> The <b>direct line is shortest but breaches RAF Waddington's ATZ</b> → the data filter rejects it before planning.</div>
+        <div class="step"><b>3.</b> A <b>primary (east)</b> route flies; a <b>backup (west)</b> is pre-loaded for in-flight re-routing.</div>
+        <div class="step"><b>4.</b> Real <b>emergency set-down</b> surfaces are mapped along the corridor.</div>
 
-      <h2>Analysis layers</h2>
-      <label class="toggle"><input type="checkbox" id="t-heat" checked> Demand heatmap</label>
-      <label class="toggle"><input type="checkbox" id="t-cand" checked> Derived vertiports</label>
-      <label class="toggle"><input type="checkbox" id="t-obs" checked> Obstacle no-fly zones</label>
-      <label class="toggle"><input type="checkbox" id="t-air" checked> Military airspace (FRZ/MATZ)</label>
+        <h2>Routes</h2>
+        <div id="route-list"></div>
+
+        <h2>Layers</h2>
+        <label class="toggle"><input type="checkbox" id="t-routes" checked> Flight routes</label>
+        <label class="toggle"><input type="checkbox" id="t-endpoints" checked> Pickup / landing pads</label>
+        <label class="toggle"><input type="checkbox" id="t-rair" checked> RAF Waddington ATZ / MATZ</label>
+        <label class="toggle"><input type="checkbox" id="t-rcath" checked> Cathedral obstacle</label>
+        <label class="toggle"><input type="checkbox" id="t-emg" checked> Emergency landing sites</label>
+
+        <p class="note">
+          Route lengths and the closest-approach distance to Waddington are <b>computed</b> from the
+          waypoint geometry — the "shortest ≠ flyable" point is evidenced by real numbers.
+          Endpoints are real public places; routes are <b>illustrative</b> corridors, not CAA-approved tracks.
+        </p>
+      </div>
+
+      <!-- ================= CITY PANEL ================= -->
+      <div id="panel-city" class="hidden">
+        <p class="sub">Real demand + constraints → <b>derived</b> vertiport sites (supporting evidence for the landing pad).</p>
+        <div>
+          <span class="pill" id="pill-pois">… POIs</span>
+          <span class="pill">Real OSM data</span>
+          <span class="pill" id="pill-sites">… sites</span>
+        </div>
+
+        <h2>Method (read me)</h2>
+        <div class="step"><b>1.</b> Map real demand from OpenStreetMap (hospitals, schools, restaurants, parks, civic, transport, retail).</div>
+        <div class="step"><b>2.</b> Overlay constraints — Cathedral/Castle no-fly, RAF Waddington 5 km FRZ + MATZ.</div>
+        <div class="step"><b>3.</b> Score a 120 m grid by weighted demand within 650 m, minus exclusions, +open-space bonus.</div>
+        <div class="step"><b>4.</b> Keep adding spaced sites until <b>85% demand coverage</b> → the count is derived, not fixed.</div>
+
+        <h2>Demand layers (real OSM)</h2>
+        <div id="cat-toggles"></div>
+
+        <h2>Analysis layers</h2>
+        <label class="toggle"><input type="checkbox" id="t-heat" checked> Demand heatmap</label>
+        <label class="toggle"><input type="checkbox" id="t-cand" checked> Derived vertiports</label>
+        <label class="toggle"><input type="checkbox" id="t-obs" checked> Obstacle no-fly zones</label>
+        <label class="toggle"><input type="checkbox" id="t-air" checked> Military airspace (FRZ/MATZ)</label>
+      </div>
 
       <p class="note">
         <b>Data:</b> live OpenStreetMap via Overpass API (run <code>python3 scripts/fetch_and_analyze.py</code> to refresh).
@@ -82,19 +135,79 @@
   }
   const CATS = D.meta.categories;
 
-  const map = L.map('map', { zoomControl: true }).setView(D.meta.center, 13);
+  const map = L.map('map', { zoomControl: true }).setView(D.meta.center, 12);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
   }).addTo(map);
 
-  document.getElementById('pill-pois').textContent = D.demand.features.length + ' POIs';
-  document.getElementById('pill-sites').textContent =
-    D.candidates.features.length + ' sites · ' + Math.round((D.meta.coverage||0)*100) + '% coverage';
+  const emojiIcon = (emoji, bg) => L.divIcon({ className:'',
+    html:`<div style="width:30px;height:30px;border-radius:50%;background:${bg};border:3px solid #fff;
+          box-shadow:0 0 0 1px rgba(0,0,0,.5);font-size:15px;text-align:center;line-height:26px">${emoji}</div>`,
+    iconSize:[30,30], iconAnchor:[15,15] });
 
-  // ---- Demand POI layers, one per category ----
+  /* =====================================================================
+     ROUTE MODE LAYERS
+     ===================================================================== */
+  const R = D.route;
+  const routeLines = L.layerGroup();
+  const routeEndpoints = L.layerGroup();
+  const routeAirspace = L.layerGroup();
+  const routeCathedral = L.layerGroup();
+  const routeEmergency = L.layerGroup();
+
+  // routes
+  const routeBoundsPts = [];
+  R.routes.forEach(rt => {
+    rt.coords.forEach(c => routeBoundsPts.push(c));
+    const dashed = rt.kind !== 'primary';
+    L.polyline(rt.coords, {
+      color: rt.color, weight: rt.kind === 'primary' ? 5 : 3.5,
+      opacity: 0.95, dashArray: dashed ? '9,7' : null
+    }).bindPopup(
+      `<b>${rt.name}</b><br>Length <b>${rt.length_km} km</b>` +
+      `<br>Closest to Waddington: <b>${rt.clearance_m} m</b> ` +
+      (rt.breaches_atz ? '— <span style="color:#e74c3c">breaches ATZ ✕</span>'
+                       : '— clears ATZ ✔') +
+      `<br><br>${rt.note}`
+    ).addTo(routeLines);
+  });
+
+  // endpoints
+  L.marker([R.start.lat, R.start.lon], { icon: emojiIcon('🛫', '#2d6a4f'), zIndexOffset: 1200 })
+    .bindPopup(`<b>${R.start.name}</b>`).addTo(routeEndpoints);
+  L.marker([R.end.lat, R.end.lon], { icon: emojiIcon('🍽️', '#9d4edd'), zIndexOffset: 1200 })
+    .bindPopup(`<b>${R.end.name}</b><br>5 min walk to the table.`).addTo(routeEndpoints);
+
+  // Waddington ATZ (hard) + MATZ (coordinate)
+  const wad = R.waddington;
+  L.circle([wad.lat, wad.lon], { radius: wad.matz, color:'#9b59b6', weight:2, dashArray:'8,8',
+      fillColor:'#9b59b6', fillOpacity:.06 })
+    .bindPopup(`<b>${wad.name} — MATZ (~5 NM)</b><br>Military ATZ influence — coordinate to cross.`).addTo(routeAirspace);
+  L.circle([wad.lat, wad.lon], { radius: wad.atz, color:'#e74c3c', weight:2,
+      fillColor:'#e74c3c', fillOpacity:.16 })
+    .bindPopup(`<b>${wad.name} — ATZ (~2.5 NM)</b><br><b>Hard exclusion.</b> The direct line clips this → rejected.`).addTo(routeAirspace);
+  L.circleMarker([wad.lat, wad.lon], { radius:6, color:'#fff', weight:2, fillColor:'#e74c3c', fillOpacity:1 })
+    .bindPopup(`<b>${wad.name}</b> (active — RC-135 / ISTAR)`).addTo(routeAirspace);
+
+  // Cathedral obstacle at the destination
+  const ca = R.cathedral;
+  L.circle([ca.lat, ca.lon], { radius: ca.radius, color:'#e74c3c', weight:2, fillColor:'#e74c3c', fillOpacity:.22 })
+    .bindPopup(`<b>${ca.name}</b><br>~83 m tall on a ridge → top ≈160 m AMSL. Obstacle at the destination approach.`)
+    .addTo(routeCathedral);
+
+  // emergency landing surfaces (real OSM)
+  R.emergency.features.forEach(f => {
+    const [lon, lat] = f.geometry.coordinates; const p = f.properties;
+    L.circleMarker([lat, lon], { radius:5, color:'#7a4b00', weight:1, fillColor:'#f5a623', fillOpacity:.9 })
+      .bindPopup(`<b>${p.name}</b><br>${p.kind} · emergency set-down<br>~${p.dist} m from primary route`)
+      .addTo(routeEmergency);
+  });
+
+  /* =====================================================================
+     CITY MODE LAYERS (suitability)
+     ===================================================================== */
   const catLayers = {};
   Object.keys(CATS).forEach(cat => { catLayers[cat] = L.layerGroup(); });
-
   D.demand.features.forEach(f => {
     const cat = f.properties.cat;
     if (!catLayers[cat]) return;
@@ -105,39 +218,16 @@
       .addTo(catLayers[cat]);
   });
 
-  // category toggles UI (default: heavy categories on, food/park dimmed off to reduce clutter)
-  const defaultOn = { food:false, park:false };
-  const tgWrap = document.getElementById('cat-toggles');
-  Object.keys(CATS).forEach(cat => {
-    const on = defaultOn[cat] !== false;
-    const count = D.demand.features.filter(f => f.properties.cat === cat).length;
-    const id = 'cat-' + cat;
-    const lab = document.createElement('label');
-    lab.className = 'toggle';
-    lab.innerHTML = `<input type="checkbox" id="${id}" ${on?'checked':''}>` +
-      `<span class="sw" style="background:${CATS[cat].color}"></span>${CATS[cat].label}` +
-      `<span class="cnt">${count}</span>`;
-    tgWrap.appendChild(lab);
-    if (on) catLayers[cat].addTo(map);
-    lab.querySelector('input').addEventListener('change', e =>
-      e.target.checked ? catLayers[cat].addTo(map) : map.removeLayer(catLayers[cat]));
-  });
-
-  // ---- Demand heatmap ----
   const heat = L.heatLayer(D.heat, { radius: 28, blur: 22, maxZoom: 15,
     gradient: {0.2:'#2c3e91', 0.4:'#2980b9', 0.6:'#27ae60', 0.8:'#f1c40f', 1.0:'#e74c3c'} });
-  heat.addTo(map);
 
-  // ---- Obstacles ----
   const obstacles = L.layerGroup();
   D.obstacles.features.forEach(f => {
     const [lon, lat] = f.geometry.coordinates; const p = f.properties;
     L.circle([lat, lon], { radius: p.radius, color:'#e74c3c', weight:2, fillColor:'#e74c3c', fillOpacity:.25 })
       .bindPopup(`<b>${p.name}</b><br>${p.note}`).addTo(obstacles);
   });
-  obstacles.addTo(map);
 
-  // ---- Airspace ----
   const airspace = L.layerGroup();
   D.airspace.features.forEach(f => {
     const [lon, lat] = f.geometry.coordinates; const p = f.properties;
@@ -151,15 +241,12 @@
     L.circleMarker([lat, lon], { radius:6, color:'#fff', weight:2, fillColor:'#f1c40f', fillOpacity:1 })
       .bindPopup(`<b>${p.name}</b> (${p.status})<br>${p.note}`).addTo(airspace);
   });
-  airspace.addTo(map);
 
-  // ---- Derived vertiport candidates ----
   const candidates = L.layerGroup();
   const vIcon = (id) => L.divIcon({ className:'',
     html:`<div style="width:26px;height:26px;border-radius:50%;background:#16a34a;border:3px solid #fff;
           box-shadow:0 0 0 1px rgba(0,0,0,.5)"><div class="vlabel">${id.replace('V','')}</div></div>`,
     iconSize:[26,26], iconAnchor:[13,13] });
-
   D.candidates.features.forEach(f => {
     const [lon, lat] = f.geometry.coordinates; const p = f.properties;
     const served = Object.entries(p.served).sort((a,b)=>b[1]-a[1])
@@ -171,17 +258,102 @@
         `${p.open?' · near open space ✔':''}${cov}<br><br><b>Demand within 650 m:</b><br>${served}${anchors}`)
       .addTo(candidates);
   });
-  candidates.addTo(map);
 
-  // ---- toggles ----
-  const wire = (id, layer) => document.getElementById(id).addEventListener('change',
-    e => e.target.checked ? layer.addTo(map) : map.removeLayer(layer));
-  wire('t-heat', heat);
-  wire('t-cand', candidates);
-  wire('t-obs', obstacles);
-  wire('t-air', airspace);
+  /* =====================================================================
+     SIDEBAR TEXT + TOGGLE WIRING
+     ===================================================================== */
+  // route pills + list
+  const directRt = R.routes.find(r => r.id === 'direct');
+  document.getElementById('pill-dist').textContent = (directRt ? directRt.length_km : '?') + ' km direct';
+  document.getElementById('pill-emg').textContent = R.emergency.features.length + ' emergency sites';
+  const rlist = document.getElementById('route-list');
+  R.routes.forEach(rt => {
+    const div = document.createElement('div');
+    div.className = 'rt';
+    const tag = rt.breaches_atz
+      ? `<span class="tag tag-bad">breaches ATZ</span>`
+      : `<span class="tag tag-ok">clears ATZ</span>`;
+    div.innerHTML = `<span class="swl" style="border-top-color:${rt.color};` +
+      `border-top-style:${rt.kind==='primary'?'solid':'dashed'}"></span> ` +
+      `<b>${rt.name}</b>${tag}<br>` +
+      `<span style="color:var(--muted)">${rt.length_km} km · closest to Waddington ${rt.clearance_m} m</span>`;
+    rlist.appendChild(div);
+  });
 
-  map.fitBounds(L.latLngBounds([[D.meta.bbox[0], D.meta.bbox[1]],[D.meta.bbox[2], D.meta.bbox[3]]]).pad(0.02));
+  // city pills
+  document.getElementById('pill-pois').textContent = D.demand.features.length + ' POIs';
+  document.getElementById('pill-sites').textContent =
+    D.candidates.features.length + ' sites · ' + Math.round((D.meta.coverage||0)*100) + '% coverage';
+
+  // city category toggles
+  const defaultOn = { food:false, park:false };
+  const tgWrap = document.getElementById('cat-toggles');
+  Object.keys(CATS).forEach(cat => {
+    const on = defaultOn[cat] !== false;
+    const count = D.demand.features.filter(f => f.properties.cat === cat).length;
+    const id = 'cat-' + cat;
+    const lab = document.createElement('label');
+    lab.className = 'toggle';
+    lab.innerHTML = `<input type="checkbox" id="${id}" ${on?'checked':''}>` +
+      `<span class="sw" style="background:${CATS[cat].color}"></span>${CATS[cat].label}` +
+      `<span class="cnt">${count}</span>`;
+    tgWrap.appendChild(lab);
+    catLayers[cat]._wantOn = on;
+    lab.querySelector('input').addEventListener('change', e => {
+      catLayers[cat]._wantOn = e.target.checked;
+      e.target.checked ? catLayers[cat].addTo(map) : map.removeLayer(catLayers[cat]);
+    });
+  });
+
+  // generic toggle wiring: checkbox -> layer, remembers desired state per tab
+  const ROUTE_LAYERS = [
+    ['t-routes', routeLines], ['t-endpoints', routeEndpoints],
+    ['t-rair', routeAirspace], ['t-rcath', routeCathedral], ['t-emg', routeEmergency],
+  ];
+  const CITY_LAYERS = [
+    ['t-heat', heat], ['t-cand', candidates], ['t-obs', obstacles], ['t-air', airspace],
+  ];
+  function wire(pairs) {
+    pairs.forEach(([id, layer]) => {
+      const cb = document.getElementById(id);
+      layer._wantOn = cb.checked;
+      cb.addEventListener('change', e => {
+        layer._wantOn = e.target.checked;
+        e.target.checked ? layer.addTo(map) : map.removeLayer(layer);
+      });
+    });
+  }
+  wire(ROUTE_LAYERS); wire(CITY_LAYERS);
+
+  /* =====================================================================
+     TAB SWITCHING
+     ===================================================================== */
+  const routeBounds = L.latLngBounds(routeBoundsPts).pad(0.12);
+  const cityBounds = L.latLngBounds([[D.meta.bbox[0], D.meta.bbox[1]],[D.meta.bbox[2], D.meta.bbox[3]]]).pad(0.02);
+
+  function detachAll(pairs) { pairs.forEach(([,layer]) => map.removeLayer(layer)); }
+  function detachCats() { Object.values(catLayers).forEach(l => map.removeLayer(l)); }
+  function attach(pairs) { pairs.forEach(([,layer]) => { if (layer._wantOn) layer.addTo(map); }); }
+  function attachCats() { Object.values(catLayers).forEach(l => { if (l._wantOn) l.addTo(map); }); }
+
+  function showTab(which) {
+    const route = which === 'route';
+    document.getElementById('panel-route').classList.toggle('hidden', !route);
+    document.getElementById('panel-city').classList.toggle('hidden', route);
+    document.getElementById('tab-route').classList.toggle('active', route);
+    document.getElementById('tab-city').classList.toggle('active', !route);
+    if (route) {
+      detachAll(CITY_LAYERS); detachCats();
+      attach(ROUTE_LAYERS);
+      map.fitBounds(routeBounds);
+    } else {
+      detachAll(ROUTE_LAYERS);
+      attach(CITY_LAYERS); attachCats();
+      map.fitBounds(cityBounds);
+    }
+  }
+  window.showTab = showTab;
+  showTab('route');   // start on the flight-route view (matches the assignment scenario)
 </script>
 </body>
 </html>

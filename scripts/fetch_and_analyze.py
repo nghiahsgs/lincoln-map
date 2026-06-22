@@ -25,6 +25,33 @@ CASTLE    = (53.2345, -0.5405)
 WADDINGTON = (53.1662, -0.5240)  # active RAF base ~6.5 km south
 SCAMPTON   = (53.3076, -0.5510)  # former Red Arrows base ~8.5 km north
 
+# ---- Route scenario (the actual assignment: ONE flight, A -> B -> A) ----
+# "Optimising data in support of platform activity": Metheringham village -> a
+# table at Castle View Indian Restaurant by Lincoln Castle, ~16 km. Endpoints are
+# real public places; the route polylines are ILLUSTRATIVE corridors (geometry),
+# not CAA-approved tracks. We COMPUTE each route's length + closest approach to
+# RAF Waddington so "the shortest route is not the flyable route" is evidenced by
+# real numbers, not asserted.
+METHERINGHAM = (53.1416, -0.3930)  # village pickup pad (public place)
+DESTINATION  = (53.2348, -0.5398)  # Bailgate landing pad by the Castle / Castle View restaurant
+WADDINGTON_ATZ = 4630.0            # ~2.5 NM Aerodrome Traffic Zone — hard exclusion
+WADDINGTON_MATZ = 9260.0           # ~5 NM MATZ — coordinate to cross
+
+# Corridor study area for emergency-landing search (covers all 3 routes)
+ROUTE_BBOX = (53.090, -0.660, 53.250, -0.380)
+
+ROUTES = [
+    dict(id="direct", name="Direct line (shortest)", kind="blocked", color="#e74c3c",
+         note="Shortest A→B, but its closest approach breaches Waddington's ATZ → rejected by the data filter before planning.",
+         waypoints=[METHERINGHAM, DESTINATION]),
+    dict(id="east", name="East detour (primary)", kind="primary", color="#16a34a",
+         note="Bows east/north of Waddington, then approaches Lincoln from the east. Loaded as the main route.",
+         waypoints=[METHERINGHAM, (53.205, -0.440), DESTINATION]),
+    dict(id="west", name="West detour (backup, pre-loaded)", kind="backup", color="#0984e3",
+         note="Swings south then well west of Waddington. Pre-loaded on board so it can activate instantly if the east corridor closes mid-flight (scenario B).",
+         waypoints=[METHERINGHAM, (53.105, -0.470), (53.120, -0.640), (53.230, -0.630), DESTINATION]),
+]
+
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..")
 DATA_JS = os.path.join(OUT_DIR, "data.js")
 
@@ -67,8 +94,7 @@ def build_query():
     body = "\n".join(parts)
     return f"[out:json][timeout:90];\n(\n{body}\n);\nout center tags;"
 
-def fetch_overpass():
-    query = build_query()
+def post_overpass(query):
     data = urllib.parse.urlencode({"data": query}).encode()
     headers = {"User-Agent": "lincoln-uam-case-study/1.0 (academic GIS project)"}
     for url in OVERPASS_MIRRORS:
@@ -81,6 +107,29 @@ def fetch_overpass():
             print(f"[overpass] {url} failed: {ex}", file=sys.stderr)
             time.sleep(2)
     raise SystemExit("All Overpass mirrors failed. Check your connection and retry.")
+
+def fetch_overpass():
+    return post_overpass(build_query())
+
+def build_emergency_query():
+    """Open, flat, unobstructed surfaces along the corridor = realistic emergency
+    set-down options (sports pitches, recreation grounds, golf, large open grass)."""
+    s, w, n, e = ROUTE_BBOX
+    b = f"({s},{w},{n},{e})"
+    sels = [
+        '["leisure"="pitch"]', '["leisure"="recreation_ground"]',
+        '["leisure"="golf_course"]', '["leisure"="park"]',
+        '["landuse"="recreation_ground"]', '["landuse"="meadow"]',
+    ]
+    parts = []
+    for sel in sels:
+        parts.append(f'way{sel}{b};')
+        parts.append(f'node{sel}{b};')
+    body = "\n".join(parts)
+    return f"[out:json][timeout:90];\n(\n{body}\n);\nout center tags;"
+
+def fetch_emergency():
+    return post_overpass(build_emergency_query())
 
 def classify(tags):
     a = tags.get("amenity", "")
@@ -122,6 +171,30 @@ def metres(a, b):
     dx = (b[1] - a[1]) * math.cos(latm) * 111320
     dy = (b[0] - a[0]) * 110540
     return math.hypot(dx, dy)
+
+def _xy(q, ref_lat):
+    """project lat/lon to local metres about a reference latitude."""
+    return (q[1] * math.cos(math.radians(ref_lat)) * 111320, q[0] * 110540)
+
+def seg_dist_m(p, a, b):
+    """shortest distance (m) from point p to segment a-b."""
+    ref = p[0]
+    (px, py), (ax, ay), (bx, by) = _xy(p, ref), _xy(a, ref), _xy(b, ref)
+    dx, dy = bx - ax, by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+def route_metrics(wps):
+    """total length (m) and closest approach (m) to RAF Waddington for a polyline."""
+    length = sum(metres(wps[i], wps[i + 1]) for i in range(len(wps) - 1))
+    clear = min(seg_dist_m(WADDINGTON, wps[i], wps[i + 1]) for i in range(len(wps) - 1))
+    return length, clear
+
+def dist_to_route(p, wps):
+    """closest distance (m) from a point to a polyline."""
+    return min(seg_dist_m(p, wps[i], wps[i + 1]) for i in range(len(wps) - 1))
 
 def suitability(points):
     """Grid-based suitability. Each cell scored by weighted demand within RADIUS,
@@ -226,6 +299,65 @@ def point_feature(lat, lon, props):
             "geometry": {"type": "Point", "coordinates": [lon, lat]},
             "properties": props}
 
+def emergency_sites(osm, corridor_wps, max_dist=1600.0, keep=14):
+    """Real open surfaces from OSM within `max_dist` of the flight corridor.
+    Returns the closest-to-route, named-first set as a small list."""
+    raw = []
+    seen = set()
+    for el in osm.get("elements", []):
+        if el["type"] == "node":
+            lat, lon = el.get("lat"), el.get("lon")
+        else:
+            c = el.get("center") or {}
+            lat, lon = c.get("lat"), c.get("lon")
+        if lat is None or lon is None:
+            continue
+        tags = el.get("tags", {})
+        kind = tags.get("leisure") or tags.get("landuse") or "open space"
+        name = tags.get("name", "")
+        d = dist_to_route((lat, lon), corridor_wps)
+        if d > max_dist:
+            continue
+        key = (round(lat, 4), round(lon, 4))
+        if key in seen:
+            continue
+        seen.add(key)
+        raw.append(dict(lat=lat, lon=lon, kind=kind, name=name, dist=round(d)))
+    # prefer named sites, then closest to the route
+    raw.sort(key=lambda r: (0 if r["name"] else 1, r["dist"]))
+    return raw[:keep]
+
+def build_route(emergency_osm):
+    routes_out = []
+    for r in ROUTES:
+        wps = r["waypoints"]
+        length, clear = route_metrics(wps)
+        routes_out.append(dict(
+            id=r["id"], name=r["name"], kind=r["kind"], color=r["color"], note=r["note"],
+            coords=[[lat, lon] for (lat, lon) in wps],   # [lat,lon] for Leaflet
+            length_km=round(length / 1000, 1),
+            clearance_m=round(clear),
+            breaches_atz=clear < WADDINGTON_ATZ,
+        ))
+    # emergency-landing candidates within the corridor of the primary (east) route
+    east_wps = next(r["waypoints"] for r in ROUTES if r["id"] == "east")
+    emg = emergency_sites(emergency_osm, east_wps)
+    emergency_fc = fc([
+        point_feature(e["lat"], e["lon"],
+                      dict(name=e["name"] or "(unnamed open space)",
+                           kind=e["kind"], dist=e["dist"]))
+        for e in emg
+    ])
+    return dict(
+        start=dict(lat=METHERINGHAM[0], lon=METHERINGHAM[1], name="Metheringham — village pickup pad"),
+        end=dict(lat=DESTINATION[0], lon=DESTINATION[1], name="Bailgate pad — Castle View Restaurant, Lincoln"),
+        waddington=dict(lat=WADDINGTON[0], lon=WADDINGTON[1], name="RAF Waddington",
+                        atz=WADDINGTON_ATZ, matz=WADDINGTON_MATZ),
+        cathedral=dict(lat=CATHEDRAL[0], lon=CATHEDRAL[1], name="Lincoln Cathedral", radius=400),
+        routes=routes_out,
+        emergency=emergency_fc,
+    ), emg
+
 def main():
     osm = fetch_overpass()
     points = to_points(osm)
@@ -235,6 +367,10 @@ def main():
     print("[data] real OSM features by category:", counts, file=sys.stderr)
 
     candidates, cells = suitability(points)
+
+    print("[route] fetching emergency-landing surfaces along corridor ...", file=sys.stderr)
+    emergency_osm = fetch_emergency()
+    route_data, emg = build_route(emergency_osm)
 
     demand_features = [
         point_feature(p["lat"], p["lon"],
@@ -287,6 +423,7 @@ def main():
         candidates=fc(cand_features),
         obstacles=obstacles,
         airspace=airspace,
+        route=route_data,
     )
 
     with open(DATA_JS, "w") as f:
@@ -301,6 +438,11 @@ def main():
     for k in candidates:
         print(f"   {k['id']}  score={k['score']:>6}  cover={k.get('coverage'):.0%}  "
               f"open={k['open']}  anchors={k['anchors']}", file=sys.stderr)
+    print(f"[route] Metheringham -> Lincoln, {len(emg)} emergency-landing sites along corridor:", file=sys.stderr)
+    for r in route_data["routes"]:
+        flag = "BREACHES ATZ" if r["breaches_atz"] else f"clears ATZ ({r['clearance_m']} m)"
+        print(f"   {r['id']:<7} {r['length_km']:>4} km  closest Waddington {r['clearance_m']:>5} m  -> {flag}",
+              file=sys.stderr)
 
 if __name__ == "__main__":
     main()

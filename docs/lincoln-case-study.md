@@ -1,9 +1,13 @@
 # Section 3 — Lincoln Case Study: Context & GIS Analysis
 
 **Author / Role:** Ly — *Lincoln Context & GIS Analyst (supporting realism and location-specific details).*
-**Purpose:** Provide the real-world constraints (urban layout, airspace, weather, demand) and a **data-driven GIS method** that derives candidate vertiport locations — so the technical sections are grounded in an actual operating environment, not guesswork.
+**Purpose:** Ground the report's scenario — a single eVTOL taxi flight **Metheringham → Castle View Restaurant, Lincoln (~16 km), and back** — in real geography, so the data-process design (sources, filtering, in-flight re-routing) is built on an actual operating environment, not guesswork.
 
-> **Method in one line:** *map real demand → overlay real constraints → score the space → derive vertiports.* We do **not** hand-pick sites; the candidate sites come out of a suitability model fed with live OpenStreetMap data.
+> **Two GIS deliverables, both from real OpenStreetMap data and computed geometry:**
+> 1. **Flight-route corridor (primary, §3.2)** — the scenario's route, the RAF Waddington ATZ that forces a detour, the obstacle at the destination, and real emergency-landing surfaces along the way. *This is the "khoanh vùng dọc tuyến" the brief actually asks for.*
+> 2. **City suitability (supporting, §3.6–3.7)** — a grid model over live demand that *derives* candidate vertiports, used here to justify **why the Bailgate landing pad is a sound choice** (it scores highly), not to design a city-wide network.
+>
+> **Method in one line:** *map real demand & constraints → overlay the route → let the geometry decide what is flyable.* Nothing is hand-picked.
 
 ---
 
@@ -20,7 +24,33 @@ City-centre reference (Brayford Pool): **53.2268° N, 0.5430° W**.
 
 ---
 
-## 3.2 The data (this is the key fix — no fabricated points)
+## 3.2 The flight corridor — the report's actual scenario (primary deliverable)
+
+The scenario is **one flight**: a village pickup at **Metheringham** (53.1416° N, 0.3930° W) to a dinner table at **Castle View Restaurant** by Lincoln Castle (landing pad at Bailgate, 53.2348° N, 0.5398° W), then the return leg. The GIS job here is not to optimise a city — it is to **circle the real things along this 16 km line** that decide whether the flight is possible.
+
+**The key finding — shortest ≠ flyable.** Each route's length and its *closest approach* to RAF Waddington are computed from the waypoint geometry (`scripts/fetch_and_analyze.py`), then compared against the **~2.5 NM (4 630 m) Aerodrome Traffic Zone** — a hard exclusion:
+
+| Route | Length | Closest approach to Waddington | Verdict |
+|-------|-------:|-------------------------------:|---------|
+| **Direct line** (shortest) | **14.2 km** | **4 461 m** | **Breaches the ATZ ✕** — rejected by the data filter *before* planning |
+| **East detour** (primary) | 15.1 km | 6 330 m | Clears ATZ ✔ — only +0.9 km; flown as the main route |
+| **West detour** (backup) | 36.2 km | 6 173 m | Clears ATZ ✔ — but **2.4× longer**; pre-loaded only as an in-flight contingency |
+
+This is exactly why the report's data pipeline (filter gate "impact/space") and its in-flight re-routing (scenario B — east corridor closes) are not abstract: the direct line is genuinely blocked, the east route is the cheap legal path, and the west route is a real but expensive fallback that an eVTOL would only take in an emergency.
+
+**Mapped constraints along the corridor:**
+
+- **RAF Waddington ATZ (hard, 4 630 m) + MATZ (~5 NM, coordinate-to-cross)** — the airspace that bends the route.
+- **Lincoln Cathedral** at the destination — ~83 m on the ridge, an obstacle on the final approach into Bailgate.
+- **Emergency set-down surfaces** — **14 real open spaces** (sports fields, recreation grounds, parks, large grass) pulled live from OpenStreetMap within ~1.6 km of the primary route, e.g. *Potterhanworth Road Sports Field* (67 m off-route), *Lincoln Arboretum*, *Temple Gardens*, *grounds of Nocton Hall*. These populate the "Emergency" data layer the report's database design calls for.
+
+See **Tab 1 "Flight route"** in `index.html` for the interactive corridor map.
+
+> **Honesty note:** the two endpoints and RAF coordinates are real public places; the route polylines are *illustrative* corridors (waypoint geometry), not CAA-approved tracks, and the ATZ/MATZ are standard buffer radii — verify against the UK AIP before any real operation. The **lengths, clearances and emergency sites are real computed/sourced values**, not invented.
+
+---
+
+## 3.3 The demand data (no fabricated points)
 
 All demand points are pulled live from **OpenStreetMap via the Overpass API** by `scripts/fetch_and_analyze.py`. The latest run returned **740 real points of interest** inside the Lincoln study area (bbox 53.18–53.29 N, −0.60 to −0.47 W):
 
@@ -40,7 +70,7 @@ Weights are an editable assumption in the script; re-running the script refreshe
 
 ---
 
-## 3.3 The constraints
+## 3.4 The constraints
 
 **Obstacles (hard no-fly):**
 
@@ -59,7 +89,7 @@ Other design rules baked into the thinking: **120 m (400 ft) AGL** standard ceil
 
 ---
 
-## 3.4 Weather
+## 3.5 Weather
 
 Lincoln is inland and eastern → **relatively dry** (~580–620 mm/yr, Pennine rain shadow) but exposed to **easterly** North-Sea winds.
 
@@ -69,7 +99,7 @@ Lincoln is inland and eastern → **relatively dry** (~580–620 mm/yr, Pennine 
 
 ---
 
-## 3.5 The suitability model (how vertiports are derived)
+## 3.6 The suitability model (how vertiports are derived)
 
 Implemented in `scripts/fetch_and_analyze.py`:
 
@@ -85,7 +115,7 @@ This is transparent and reproducible: change a weight, a buffer, or the coverage
 
 ---
 
-## 3.6 Result — derived vertiport network
+## 3.7 Result — derived vertiport network (supporting evidence for the landing pad)
 
 The latest run derives **19 vertiports** reaching **~87% weighted demand coverage**. They form a natural tier structure (scores are relative suitability, higher = better):
 
@@ -107,11 +137,11 @@ The latest run derives **19 vertiports** reaching **~87% weighted demand coverag
 
 ---
 
-## 3.7 Summary for the technical sections
+## 3.8 Summary for the technical sections
 
-- **Demand is real and reproducible** — 740 OSM POIs, not invented points.
-- **Vertiports are derived, not assumed** — output of a documented suitability model.
-- **Build toward the multimodal hub, university and hospital first**; keep clear of the Cathedral ridge and Waddington's MATZ/FRZ.
-- **Design for a 120 m AGL ceiling**, CAA coordination with RAF Waddington, and weather downtime from fog and ridge turbulence.
+- **The route is the deliverable** — the direct line (14.2 km) *breaches* Waddington's ATZ (4 461 m < 4 630 m); the east detour (15.1 km) is the cheap legal path; the west backup (36.2 km) is a real but costly contingency. These numbers feed the filter gate and the in-flight re-routing logic.
+- **Emergency set-down is mapped, not assumed** — 14 real open surfaces from OSM along the corridor populate the "Emergency" data layer.
+- **Demand is real and reproducible** — 740 OSM POIs, not invented points; the suitability model *derives* the Bailgate-area landing pad rather than asserting it.
+- **Design for a 120 m AGL ceiling**, CAA coordination with RAF Waddington, the Cathedral obstacle on the final approach, and weather downtime from fog and ridge turbulence.
 
-See `index.html` for the interactive map (toggle demand layers, heatmap, constraints, and the derived vertiports). Re-run `python3 scripts/fetch_and_analyze.py` to refresh all data.
+See `index.html` — **Tab 1 (Flight route)** for the corridor + constraints, **Tab 2 (City suitability)** for the demand model. Re-run `python3 scripts/fetch_and_analyze.py` to refresh all data.

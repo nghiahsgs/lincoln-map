@@ -3,11 +3,11 @@
 🌍 **Live map:** https://nghiahsgs.github.io/lincoln-map/
 
 Deliverables for **Section 3** of the group UAM/eVTOL report — *Lincoln Context & GIS Analyst (Ly)*.
-Provides the real-world constraints (urban layout, CAA airspace, weather, vertiport candidates and
-obstacle zones) that ground the technical sections in an actual operating environment.
+Grounds the report's scenario — a single eVTOL taxi flight **Metheringham → Castle View Restaurant, Lincoln (~16 km)** — in real geography.
 
-Method: **map real demand → overlay real constraints → score the space → derive vertiports.**
-Sites are *not* hand-picked — they fall out of a suitability model fed with live OpenStreetMap data.
+Two GIS deliverables, both from real OpenStreetMap data + computed geometry:
+1. **Flight-route corridor** — the route, the RAF Waddington ATZ that forces a detour (the **direct line breaches it**), the Cathedral obstacle, and real emergency-landing surfaces along the way.
+2. **City suitability** — a grid model over live demand that *derives* candidate vertiports (sites are **not** hand-picked), used to justify the Bailgate landing pad.
 
 ## Contents
 
@@ -15,7 +15,7 @@ Sites are *not* hand-picked — they fall out of a suitability model fed with li
 |------|------------|
 | [`scripts/fetch_and_analyze.py`](scripts/fetch_and_analyze.py) | **Data + analysis pipeline.** Pulls 740+ real POIs from OpenStreetMap (Overpass API), runs the grid suitability model, and writes `data.js`. Standard library only. |
 | [`data.js`](data.js) | Auto-generated real data (demand POIs, heatmap, constraints, derived vertiports). |
-| [`index.html`](index.html) | **Interactive map** for the presentation — real demand layers, demand heatmap, obstacle/airspace constraints, and the derived V1–V8 vertiports. |
+| [`index.html`](index.html) | **Interactive map** with two tabs — **🛫 Flight route** (Metheringham → Lincoln corridor, RAF Waddington ATZ, primary/backup routes, Cathedral obstacle, real emergency-landing sites) and **🗺️ City suitability** (real demand layers, heatmap, constraints, derived vertiports). |
 | [`docs/lincoln-case-study.md`](docs/lincoln-case-study.md) | **Written documentation** for the report. |
 
 ## Refresh the data
