@@ -394,19 +394,38 @@ def emergency_sites(osm, corridor_wps, max_dist=1600.0, keep=14):
     raw.sort(key=lambda r: (0 if r["name"] else 1, r["dist"]))
     return raw[:keep]
 
-def corridor_vertiports(corridor_osm, route_wps):
-    """Derive intermediate vertiports along the corridor: real settlements within
-    reach of the primary route, scored by their real nearby demand, excluding any
-    inside the ATZ, spaced apart. The COUNT emerges from how many villages the
-    corridor actually passes — nothing hand-placed."""
-    CORRIDOR_DIST = 2500.0   # how far off the route a village can be served (m)
-    RADIUS = 900.0           # demand catchment for scoring a village pad (m)
-    MIN_SEP = 1500.0         # min spacing between corridor vertiports (m)
-    MIN_SCORE = 1.0          # a pad must serve at least some real demand
+def _parse_parcels(parcel_osm):
+    """Real open landing surfaces (sports pitches, recreation grounds, parks, golf,
+    open grass) — the physical 'empty land' a vertiport must sit on."""
+    out = []
+    for el in parcel_osm.get("elements", []):
+        if el["type"] == "node":
+            lat, lon = el.get("lat"), el.get("lon")
+        else:
+            c = el.get("center") or {}
+            lat, lon = c.get("lat"), c.get("lon")
+        if lat is None or lon is None:
+            continue
+        tags = el.get("tags", {})
+        kind = tags.get("leisure") or tags.get("landuse") or "open space"
+        out.append(dict(lat=lat, lon=lon, kind=kind, name=tags.get("name", "")))
+    return out
+
+def corridor_vertiports(parcel_osm, demand_osm, route_wps):
+    """LAND-FIRST siting: start from real open parcels (the only places you can
+    physically land), drop any inside the ATZ, keep those near the route AND near
+    real demand, space them out, rank by demand. Every vertiport therefore sits on
+    a real open surface — not a built-up village centre."""
+    CORRIDOR_DIST = 2500.0   # how far off the route a parcel can serve (m)
+    RADIUS = 900.0           # demand catchment for scoring a parcel (m)
+    MIN_SEP = 1200.0         # min spacing between corridor vertiports (m)
+    MIN_SCORE = 2.0          # a vertiport parcel must have real demand near it
     EXCLUDE_DIST = 4000.0    # report ATZ-blocked villages within this of the direct line
 
+    parcels = _parse_parcels(parcel_osm)
+
     demand, places = [], []
-    for el in corridor_osm.get("elements", []):
+    for el in demand_osm.get("elements", []):
         if el["type"] == "node":
             lat, lon = el.get("lat"), el.get("lon")
         else:
@@ -416,21 +435,21 @@ def corridor_vertiports(corridor_osm, route_wps):
             continue
         tags = el.get("tags", {})
         if tags.get("place") in ("town", "village", "hamlet", "suburb") and tags.get("name"):
-            places.append(dict(lat=lat, lon=lon, name=tags["name"], place=tags["place"]))
+            places.append(dict(lat=lat, lon=lon, name=tags["name"]))
         else:
             cat = classify(tags)
             if cat in CATEGORIES:
                 demand.append(dict(lat=lat, lon=lon, cat=cat, name=tags.get("name", "")))
 
-    cands, excluded = [], []
     direct_wps = [METHERINGHAM, DESTINATION]
-    for pl in places:
-        c = (pl["lat"], pl["lon"])
-        droute = dist_to_route(c, route_wps)
+    cands = []
+    excluded_parcels = 0
+    for pa in parcels:
+        c = (pa["lat"], pa["lon"])
         if metres(c, WADDINGTON) < WADDINGTON_ATZ:
-            if dist_to_route(c, direct_wps) <= EXCLUDE_DIST:
-                excluded.append(pl["name"])    # village inside the hard no-fly zone → cannot site here
+            excluded_parcels += 1               # open land, but inside the no-fly zone → unusable
             continue
+        droute = dist_to_route(c, route_wps)
         if droute > CORRIDOR_DIST:
             continue
         score = 0.0
@@ -441,11 +460,17 @@ def corridor_vertiports(corridor_osm, route_wps):
                 score += CATEGORIES[p["cat"]]["weight"] * (1 - d / RADIUS)
                 served[p["cat"]] = served.get(p["cat"], 0) + 1
         if score < MIN_SCORE:
-            continue                            # settlement with no mapped demand → skip
-        cands.append(dict(lat=pl["lat"], lon=pl["lon"], name=pl["name"], place=pl["place"],
-                          score=round(score, 1), served=served, dist=round(droute)))
+            continue                            # open land but nobody near it → emergency-only, not a vertiport
+        village = min(places, key=lambda q: metres(c, (q["lat"], q["lon"])))["name"] if places else ""
+        cands.append(dict(lat=pa["lat"], lon=pa["lon"], kind=pa["kind"], pname=pa["name"],
+                          village=village, score=round(score, 1), served=served, dist=round(droute)))
 
-    # spacing: keep the higher-demand village where two are close together
+    # villages physically swallowed by the ATZ (teaching point for the map note)
+    excluded_villages = sorted({pl["name"] for pl in places
+                                if metres((pl["lat"], pl["lon"]), WADDINGTON) < WADDINGTON_ATZ
+                                and dist_to_route((pl["lat"], pl["lon"]), direct_wps) <= EXCLUDE_DIST})
+
+    # keep the higher-demand parcel where two sit close together
     cands.sort(key=lambda x: -x["score"])
     kept = []
     for c in cands:
@@ -457,15 +482,17 @@ def corridor_vertiports(corridor_osm, route_wps):
     order = ["hospital", "transport", "university", "retail", "community", "school", "park", "food"]
     for i, k in enumerate(kept, 1):
         k["id"] = f"C{i}"
+        surface = (k["pname"] or k["kind"].replace("_", " ")).strip()
+        k["name"] = surface + (f" — {k['village']}" if k["village"] else "")
         top = [(c, k["served"][c]) for c in order if c in k["served"]][:3]
-        drivers = ", ".join(f"{n} {CATEGORIES[c]['label'].lower()}" for c, n in top) or "a small settlement"
+        drivers = ", ".join(f"{n} {CATEGORIES[c]['label'].lower()}" for c, n in top) or "local demand"
         anchors = [c for c in ("hospital", "transport", "university") if c in k["served"]]
-        why = (f"Real OSM village {k['dist']} m off the route; serves {drivers} within 900 m "
-               f"(suitability {k['score']}).")
+        why = (f"Real open landing surface ({k['kind'].replace('_',' ')}) {k['dist']} m off the route, "
+               f"outside the ATZ; serves {drivers} within 900 m (suitability {k['score']}).")
         if anchors:
             why += " High-value: " + "/".join(CATEGORIES[a]["label"] for a in anchors) + " nearby."
         k["reason"] = why
-    return kept, sorted(set(excluded))
+    return kept, excluded_villages, excluded_parcels
 
 def build_route(emergency_osm, corridor_osm):
     avoid_r = WADDINGTON_ATZ + ATZ_MARGIN   # stay this far from the ATZ centre
@@ -519,11 +546,11 @@ def build_route(emergency_osm, corridor_osm):
         for e in emg
     ])
 
-    # intermediate vertiports at real villages along the primary route
-    cvs, cv_excluded = corridor_vertiports(corridor_osm, primary_ll)
+    # intermediate vertiports on REAL open parcels along the primary route (land-first)
+    cvs, cv_excluded, cv_excluded_parcels = corridor_vertiports(emergency_osm, corridor_osm, primary_ll)
     vertiport_fc = fc([
         point_feature(v["lat"], v["lon"],
-                      dict(id=v["id"], name=v["name"], place=v["place"],
+                      dict(id=v["id"], name=v["name"], kind=v["kind"], village=v["village"],
                            score=v["score"], served=v["served"], dist=v["dist"],
                            reason=v["reason"]))
         for v in cvs
@@ -538,6 +565,7 @@ def build_route(emergency_osm, corridor_osm):
         emergency=emergency_fc,
         vertiports=vertiport_fc,
         vertiports_excluded=cv_excluded,
+        vertiports_excluded_parcels=cv_excluded_parcels,
     ), emg, cvs, cv_excluded
 
 def main():

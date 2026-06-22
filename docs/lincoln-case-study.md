@@ -44,7 +44,14 @@ Because the direct line only *clips* the ATZ, the minimal east detour that hugs 
 - **Lincoln Cathedral** at the destination — ~83 m on the ridge, an obstacle on the final approach into Bailgate.
 - **Emergency set-down surfaces** — **14 real open spaces** (sports fields, recreation grounds, parks, large grass) pulled live from OpenStreetMap within ~1.6 km of the primary route, e.g. *Potterhanworth Road Sports Field* (67 m off-route), *Lincoln Arboretum*, *Temple Gardens*, *grounds of Nocton Hall*.
 
-**Intermediate vertiports along the corridor (derived).** Beyond the two end pads, the model derives **candidate vertiport sites at real villages within 2.5 km of the primary route**, each scored by its own nearby OSM demand and spaced ≥1.5 km apart. The latest run yields **9 sites** running south→north: *Metheringham → Nocton → Potterhanworth → Branston → Canwick → Washingborough → New Boultham → St Giles → Ermine West*. Crucially, **Bracebridge and Bracebridge Heath are excluded** — they fall inside Waddington's ATZ, so no pad can be sited there. This shows the constraints directly shaping where intermediate vertiports can and cannot go, and gives the network a real chain of stops between the two endpoints rather than just an A→B hop.
+**Intermediate vertiports along the corridor (land-first).** A vertiport physically needs an open surface to land on, so the siting is **land-first**: the candidates are **real open parcels from OSM** (sports pitches, recreation grounds, parks, open grass), not abstract grid points. The rule is simple:
+
+1. take every real open parcel along the corridor;
+2. **drop any inside Waddington's ATZ** — the latest run rejects **147 open parcels** on this ground alone;
+3. keep parcels within 2.5 km of the primary route that **also have demand within 900 m** (open land with nobody near it stays *emergency-only*, not a vertiport);
+4. space them ≥1.2 km apart and rank by demand.
+
+This yields **17 vertiports**, each sitting on a named real surface — e.g. *Nocton Village Green*, *Branston recreation ground*, *Canwick Playing Field*, *Chapel Park (Washingborough)* — running south→north along the route. Whole villages (**Bracebridge, Bracebridge Heath**) are unusable because they sit inside the ATZ. This is the intuitive answer ("a vertiport is just open land") done rigorously: open land **near people** and **outside the no-fly zone**.
 
 See **Tab 1 "Flight route"** in `index.html` for the interactive corridor map (toggle *Corridor vertiports*).
 
@@ -142,7 +149,7 @@ The latest run derives **19 vertiports** reaching **~87% weighted demand coverag
 ## 3.8 Summary for the technical sections
 
 - **The route is the deliverable, and it is computed not drawn** — a tangent-to-circle avoidance hugs the ATZ rim. The direct line (14.2 km) *breaches* Waddington's ATZ (4 461 m < 4 630 m); the primary east detour (14.2 km) clears it at the rim; the west backup (25.3 km) is the costlier way round. These numbers feed the filter gate and the in-flight re-routing logic.
-- **Intermediate vertiports are derived along the corridor** — 9 candidate sites at real villages (Metheringham → … → Ermine West), with Bracebridge / Bracebridge Heath excluded for sitting inside the ATZ. The count emerges from the villages the route actually passes.
+- **Intermediate vertiports are land-first** — 17 candidate pads, each on a real open parcel (pitch, recreation ground, park) near demand and outside the ATZ; 147 open parcels are rejected for sitting inside the ATZ. Every pad is a surface you can physically land on, not a built-up village centre.
 - **Emergency set-down is mapped, not assumed** — 14 real open surfaces from OSM along the corridor populate the "Emergency" data layer.
 - **Demand is real and reproducible** — 740 OSM POIs, not invented points; the suitability model *derives* the Bailgate-area landing pad rather than asserting it.
 - **Design for a 120 m AGL ceiling**, CAA coordination with RAF Waddington, the Cathedral obstacle on the final approach, and weather downtime from fog and ridge turbulence.
