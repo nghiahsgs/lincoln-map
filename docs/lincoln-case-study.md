@@ -40,11 +40,13 @@ Because the direct line only *clips* the ATZ, the minimal east detour that hugs 
 
 **Mapped constraints along the corridor:**
 
-- **RAF Waddington ATZ (hard, 4 630 m) + MATZ (~5 NM, coordinate-to-cross)** — the airspace that bends the route.
+- **RAF Waddington ATZ (hard, 4 630 m) + MATZ (~5 NM, coordinate-to-cross)** — the airspace that bends the route. Note both end pads sit *inside the MATZ* (Metheringham 9 148 m, Bailgate 7 657 m from the airfield) but *outside the hard ATZ* — so they are flyable **with** military coordination, not blocked.
 - **Lincoln Cathedral** at the destination — ~83 m on the ridge, an obstacle on the final approach into Bailgate.
-- **Emergency set-down surfaces** — **14 real open spaces** (sports fields, recreation grounds, parks, large grass) pulled live from OpenStreetMap within ~1.6 km of the primary route, e.g. *Potterhanworth Road Sports Field* (67 m off-route), *Lincoln Arboretum*, *Temple Gardens*, *grounds of Nocton Hall*. These populate the "Emergency" data layer the report's database design calls for.
+- **Emergency set-down surfaces** — **14 real open spaces** (sports fields, recreation grounds, parks, large grass) pulled live from OpenStreetMap within ~1.6 km of the primary route, e.g. *Potterhanworth Road Sports Field* (67 m off-route), *Lincoln Arboretum*, *Temple Gardens*, *grounds of Nocton Hall*.
 
-See **Tab 1 "Flight route"** in `index.html` for the interactive corridor map.
+**Intermediate vertiports along the corridor (derived).** Beyond the two end pads, the model derives **candidate vertiport sites at real villages within 2.5 km of the primary route**, each scored by its own nearby OSM demand and spaced ≥1.5 km apart. The latest run yields **9 sites** running south→north: *Metheringham → Nocton → Potterhanworth → Branston → Canwick → Washingborough → New Boultham → St Giles → Ermine West*. Crucially, **Bracebridge and Bracebridge Heath are excluded** — they fall inside Waddington's ATZ, so no pad can be sited there. This shows the constraints directly shaping where intermediate vertiports can and cannot go, and gives the network a real chain of stops between the two endpoints rather than just an A→B hop.
+
+See **Tab 1 "Flight route"** in `index.html` for the interactive corridor map (toggle *Corridor vertiports*).
 
 > **Honesty note:** the two endpoints and RAF coordinates are real public places; the route geometry is **computed** (tangent-to-circle avoidance), not hand-drawn, and the lengths, clearances and emergency sites are real computed/sourced values. The remaining approximations are stated plainly: the ATZ/MATZ are standard buffer radii (not the exact UK AIP boundary), the avoidance considers the ATZ disc only (MATZ is treated as coordinate-to-cross, not a hard barrier), and distances use an equirectangular projection. Verify against the UK AIP before any real operation.
 
@@ -140,6 +142,7 @@ The latest run derives **19 vertiports** reaching **~87% weighted demand coverag
 ## 3.8 Summary for the technical sections
 
 - **The route is the deliverable, and it is computed not drawn** — a tangent-to-circle avoidance hugs the ATZ rim. The direct line (14.2 km) *breaches* Waddington's ATZ (4 461 m < 4 630 m); the primary east detour (14.2 km) clears it at the rim; the west backup (25.3 km) is the costlier way round. These numbers feed the filter gate and the in-flight re-routing logic.
+- **Intermediate vertiports are derived along the corridor** — 9 candidate sites at real villages (Metheringham → … → Ermine West), with Bracebridge / Bracebridge Heath excluded for sitting inside the ATZ. The count emerges from the villages the route actually passes.
 - **Emergency set-down is mapped, not assumed** — 14 real open surfaces from OSM along the corridor populate the "Emergency" data layer.
 - **Demand is real and reproducible** — 740 OSM POIs, not invented points; the suitability model *derives* the Bailgate-area landing pad rather than asserting it.
 - **Design for a 120 m AGL ceiling**, CAA coordination with RAF Waddington, the Cathedral obstacle on the final approach, and weather downtime from fog and ridge turbulence.

@@ -120,6 +120,30 @@ def build_emergency_query():
 def fetch_emergency():
     return post_overpass(build_emergency_query())
 
+def build_corridor_query():
+    """Settlements (as candidate vertiport sites) + demand POIs along the corridor,
+    so intermediate vertiports between Metheringham and Lincoln are derived from real
+    villages and their real demand, not invented."""
+    s, w, n, e = ROUTE_BBOX
+    b = f"({s},{w},{n},{e})"
+    parts = []
+    def add(sel):
+        parts.append(f'node{sel}{b};')
+        parts.append(f'way{sel}{b};')
+    add('["amenity"~"^(hospital|clinic|doctors|school|college|university|kindergarten|'
+        'restaurant|cafe|fast_food|pub|bar|community_centre|library|townhall|'
+        'arts_centre|theatre|cinema|bus_station)$"]')
+    add('["railway"="station"]')
+    add('["leisure"~"^(park|recreation_ground|garden|sports_centre|stadium)$"]')
+    add('["shop"~"^(supermarket|mall|department_store|convenience)$"]')
+    # real settlements = candidate vertiport locations
+    parts.append(f'node["place"~"^(town|village|hamlet|suburb)$"]{b};')
+    body = "\n".join(parts)
+    return f"[out:json][timeout:90];\n(\n{body}\n);\nout center tags;"
+
+def fetch_corridor():
+    return post_overpass(build_corridor_query())
+
 def classify(tags):
     a = tags.get("amenity", "")
     l = tags.get("leisure", "")
@@ -370,7 +394,71 @@ def emergency_sites(osm, corridor_wps, max_dist=1600.0, keep=14):
     raw.sort(key=lambda r: (0 if r["name"] else 1, r["dist"]))
     return raw[:keep]
 
-def build_route(emergency_osm):
+def corridor_vertiports(corridor_osm, route_wps):
+    """Derive intermediate vertiports along the corridor: real settlements within
+    reach of the primary route, scored by their real nearby demand, excluding any
+    inside the ATZ, spaced apart. The COUNT emerges from how many villages the
+    corridor actually passes — nothing hand-placed."""
+    CORRIDOR_DIST = 2500.0   # how far off the route a village can be served (m)
+    RADIUS = 900.0           # demand catchment for scoring a village pad (m)
+    MIN_SEP = 1500.0         # min spacing between corridor vertiports (m)
+    MIN_SCORE = 1.0          # a pad must serve at least some real demand
+    EXCLUDE_DIST = 4000.0    # report ATZ-blocked villages within this of the direct line
+
+    demand, places = [], []
+    for el in corridor_osm.get("elements", []):
+        if el["type"] == "node":
+            lat, lon = el.get("lat"), el.get("lon")
+        else:
+            c = el.get("center") or {}
+            lat, lon = c.get("lat"), c.get("lon")
+        if lat is None or lon is None:
+            continue
+        tags = el.get("tags", {})
+        if tags.get("place") in ("town", "village", "hamlet", "suburb") and tags.get("name"):
+            places.append(dict(lat=lat, lon=lon, name=tags["name"], place=tags["place"]))
+        else:
+            cat = classify(tags)
+            if cat in CATEGORIES:
+                demand.append(dict(lat=lat, lon=lon, cat=cat, name=tags.get("name", "")))
+
+    cands, excluded = [], []
+    direct_wps = [METHERINGHAM, DESTINATION]
+    for pl in places:
+        c = (pl["lat"], pl["lon"])
+        droute = dist_to_route(c, route_wps)
+        if metres(c, WADDINGTON) < WADDINGTON_ATZ:
+            if dist_to_route(c, direct_wps) <= EXCLUDE_DIST:
+                excluded.append(pl["name"])    # village inside the hard no-fly zone → cannot site here
+            continue
+        if droute > CORRIDOR_DIST:
+            continue
+        score = 0.0
+        served = {}
+        for p in demand:
+            d = metres(c, (p["lat"], p["lon"]))
+            if d < RADIUS:
+                score += CATEGORIES[p["cat"]]["weight"] * (1 - d / RADIUS)
+                served[p["cat"]] = served.get(p["cat"], 0) + 1
+        if score < MIN_SCORE:
+            continue                            # settlement with no mapped demand → skip
+        cands.append(dict(lat=pl["lat"], lon=pl["lon"], name=pl["name"], place=pl["place"],
+                          score=round(score, 1), served=served, dist=round(droute)))
+
+    # spacing: keep the higher-demand village where two are close together
+    cands.sort(key=lambda x: -x["score"])
+    kept = []
+    for c in cands:
+        cc = (c["lat"], c["lon"])
+        if all(metres(cc, (k["lat"], k["lon"])) >= MIN_SEP for k in kept):
+            kept.append(c)
+    # order south->north along the corridor and number them
+    kept.sort(key=lambda x: x["lat"])
+    for i, k in enumerate(kept, 1):
+        k["id"] = f"C{i}"
+    return kept, sorted(set(excluded))
+
+def build_route(emergency_osm, corridor_osm):
     avoid_r = WADDINGTON_ATZ + ATZ_MARGIN   # stay this far from the ATZ centre
 
     # 1) the naive direct line — kept to SHOW it is blocked
@@ -421,6 +509,15 @@ def build_route(emergency_osm):
                            kind=e["kind"], dist=e["dist"]))
         for e in emg
     ])
+
+    # intermediate vertiports at real villages along the primary route
+    cvs, cv_excluded = corridor_vertiports(corridor_osm, primary_ll)
+    vertiport_fc = fc([
+        point_feature(v["lat"], v["lon"],
+                      dict(id=v["id"], name=v["name"], place=v["place"],
+                           score=v["score"], served=v["served"], dist=v["dist"]))
+        for v in cvs
+    ])
     return dict(
         start=dict(lat=METHERINGHAM[0], lon=METHERINGHAM[1], name="Metheringham — village pickup pad"),
         end=dict(lat=DESTINATION[0], lon=DESTINATION[1], name="Bailgate pad — Castle View Restaurant, Lincoln"),
@@ -429,7 +526,9 @@ def build_route(emergency_osm):
         cathedral=dict(lat=CATHEDRAL[0], lon=CATHEDRAL[1], name="Lincoln Cathedral", radius=400),
         routes=routes_out,
         emergency=emergency_fc,
-    ), emg
+        vertiports=vertiport_fc,
+        vertiports_excluded=cv_excluded,
+    ), emg, cvs, cv_excluded
 
 def main():
     osm = fetch_overpass()
@@ -443,7 +542,9 @@ def main():
 
     print("[route] fetching emergency-landing surfaces along corridor ...", file=sys.stderr)
     emergency_osm = fetch_emergency()
-    route_data, emg = build_route(emergency_osm)
+    print("[route] fetching corridor settlements + demand for intermediate vertiports ...", file=sys.stderr)
+    corridor_osm = fetch_corridor()
+    route_data, emg, cvs, cv_excluded = build_route(emergency_osm, corridor_osm)
 
     demand_features = [
         point_feature(p["lat"], p["lon"],
@@ -516,6 +617,11 @@ def main():
         flag = "BREACHES ATZ" if r["breaches_atz"] else f"clears ATZ ({r['clearance_m']} m)"
         print(f"   {r['id']:<7} {r['length_km']:>4} km  closest Waddington {r['clearance_m']:>5} m  -> {flag}",
               file=sys.stderr)
+    print(f"[route] {len(cvs)} intermediate vertiports derived along the corridor:", file=sys.stderr)
+    for v in cvs:
+        print(f"   {v['id']:<4} {v['name']:<22} score={v['score']:>5}  {v['dist']:>4} m off-route", file=sys.stderr)
+    if cv_excluded:
+        print(f"   excluded (inside ATZ): {', '.join(cv_excluded)}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

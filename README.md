@@ -6,7 +6,7 @@ Deliverables for **Section 3** of the group UAM/eVTOL report — *Lincoln Contex
 Grounds the report's scenario — a single eVTOL taxi flight **Metheringham → Castle View Restaurant, Lincoln (~16 km)** — in real geography.
 
 Two GIS deliverables, both from real OpenStreetMap data + computed geometry:
-1. **Flight-route corridor** — the route, the RAF Waddington ATZ that forces a detour (the **direct line breaches it**), the Cathedral obstacle, and real emergency-landing surfaces along the way.
+1. **Flight-route corridor** — the route (computed tangent-to-circle avoidance of the RAF Waddington ATZ, since the **direct line breaches it**), candidate vertiports derived at real villages along the way (ATZ-blocked villages excluded), the Cathedral obstacle, and real emergency-landing surfaces.
 2. **City suitability** — a grid model over live demand that *derives* candidate vertiports (sites are **not** hand-picked), used to justify the Bailgate landing pad.
 
 ## Contents

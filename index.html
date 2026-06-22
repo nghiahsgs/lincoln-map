@@ -61,6 +61,7 @@
         <p class="sub" id="route-sub">Metheringham → Castle View Restaurant, Lincoln.</p>
         <div>
           <span class="pill" id="pill-dist">… km direct</span>
+          <span class="pill" id="pill-cvert">… corridor vertiports</span>
           <span class="pill" id="pill-emg">… emergency sites</span>
         </div>
 
@@ -68,7 +69,8 @@
         <div class="step"><b>1.</b> One eVTOL taxi flight: village pickup → a dinner table in Lincoln, then back.</div>
         <div class="step"><b>2.</b> The <b>direct line is shortest but breaches RAF Waddington's ATZ</b> → the data filter rejects it before planning.</div>
         <div class="step"><b>3.</b> A <b>primary (east)</b> route flies; a <b>backup (west)</b> is pre-loaded for in-flight re-routing.</div>
-        <div class="step"><b>4.</b> Real <b>emergency set-down</b> surfaces are mapped along the corridor.</div>
+        <div class="step"><b>4.</b> <b>Candidate vertiports</b> are derived at real villages along the route (Branston, Nocton, Washingborough…); ones inside the ATZ (Bracebridge Heath) are excluded.</div>
+        <div class="step"><b>5.</b> Real <b>emergency set-down</b> surfaces are mapped along the corridor.</div>
 
         <h2>Routes</h2>
         <div id="route-list"></div>
@@ -76,11 +78,15 @@
         <h2>Layers</h2>
         <label class="toggle"><input type="checkbox" id="t-routes" checked> Flight routes</label>
         <label class="toggle"><input type="checkbox" id="t-endpoints" checked> Pickup / landing pads</label>
+        <label class="toggle"><input type="checkbox" id="t-cverts" checked> Corridor vertiports (villages)</label>
         <label class="toggle"><input type="checkbox" id="t-rair" checked> RAF Waddington ATZ / MATZ</label>
         <label class="toggle"><input type="checkbox" id="t-rcath" checked> Cathedral obstacle</label>
         <label class="toggle"><input type="checkbox" id="t-emg" checked> Emergency landing sites</label>
 
         <p class="note">
+          <b>Corridor vertiports</b> are derived from real OSM villages within 2.5 km of the primary
+          route, scored by their nearby demand; any village inside the ATZ is excluded
+          <span id="cvert-excluded"></span>.
           The detours are <b>computed</b>, not drawn: a tangent-to-circle avoidance hugs the ATZ rim
           (250 m margin), the two ways round giving the primary + backup. Lengths and closest-approach
           distances are real. Endpoints/RAF coords are real public places; the ATZ/MATZ are standard
@@ -204,6 +210,23 @@
       .addTo(routeEmergency);
   });
 
+  // corridor vertiports — derived at real villages along the route
+  const routeVertiports = L.layerGroup();
+  const cvIcon = (id) => L.divIcon({ className:'',
+    html:`<div style="width:24px;height:24px;border-radius:50%;background:#0d9488;border:3px solid #fff;
+          box-shadow:0 0 0 1px rgba(0,0,0,.5)"><div class="vlabel" style="line-height:22px;font-size:10px">${id.replace('C','')}</div></div>`,
+    iconSize:[24,24], iconAnchor:[12,12] });
+  (R.vertiports ? R.vertiports.features : []).forEach(f => {
+    const [lon, lat] = f.geometry.coordinates; const p = f.properties;
+    const served = Object.entries(p.served || {}).sort((a,b)=>b[1]-a[1])
+      .map(([k,v]) => `${v}× ${CATS[k]?CATS[k].label:k}`).join('<br>') || '(small settlement)';
+    L.marker([lat, lon], { icon: cvIcon(p.id), zIndexOffset: 800 })
+      .bindPopup(`<b>${p.id} — ${p.name}</b> <span style="color:#888">(${p.place})</span><br>` +
+        `Candidate vertiport · suitability <b>${p.score}</b><br>~${p.dist} m off the primary route<br><br>` +
+        `<b>Demand within 900 m:</b><br>${served}`)
+      .addTo(routeVertiports);
+  });
+
   /* =====================================================================
      CITY MODE LAYERS (suitability)
      ===================================================================== */
@@ -266,7 +289,11 @@
   // route pills + list
   const directRt = R.routes.find(r => r.id === 'direct');
   document.getElementById('pill-dist').textContent = (directRt ? directRt.length_km : '?') + ' km direct';
+  document.getElementById('pill-cvert').textContent =
+    (R.vertiports ? R.vertiports.features.length : 0) + ' corridor vertiports';
   document.getElementById('pill-emg').textContent = R.emergency.features.length + ' emergency sites';
+  const cvEx = R.vertiports_excluded || [];
+  if (cvEx.length) document.getElementById('cvert-excluded').textContent = ' (here: ' + cvEx.join(', ') + ')';
   const rlist = document.getElementById('route-list');
   R.routes.forEach(rt => {
     const div = document.createElement('div');
@@ -308,7 +335,7 @@
 
   // generic toggle wiring: checkbox -> layer, remembers desired state per tab
   const ROUTE_LAYERS = [
-    ['t-routes', routeLines], ['t-endpoints', routeEndpoints],
+    ['t-routes', routeLines], ['t-endpoints', routeEndpoints], ['t-cverts', routeVertiports],
     ['t-rair', routeAirspace], ['t-rcath', routeCathedral], ['t-emg', routeEmergency],
   ];
   const CITY_LAYERS = [
