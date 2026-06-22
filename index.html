@@ -206,7 +206,8 @@
   R.emergency.features.forEach(f => {
     const [lon, lat] = f.geometry.coordinates; const p = f.properties;
     L.circleMarker([lat, lon], { radius:5, color:'#7a4b00', weight:1, fillColor:'#f5a623', fillOpacity:.9 })
-      .bindPopup(`<b>${p.name}</b><br>${p.kind} · emergency set-down<br>~${p.dist} m from primary route`)
+      .bindPopup(`<b>🟠 Emergency set-down</b> (not a vertiport)<br><b>${p.name}</b> — ${p.kind}<br>` +
+        `Open surface to land on if the aircraft fails mid-flight.<br>~${p.dist} m from primary route`)
       .addTo(routeEmergency);
   });
 
@@ -222,8 +223,9 @@
       .map(([k,v]) => `${v}× ${CATS[k]?CATS[k].label:k}`).join('<br>') || '(small settlement)';
     L.marker([lat, lon], { icon: cvIcon(p.id), zIndexOffset: 800 })
       .bindPopup(`<b>${p.id} — ${p.name}</b> <span style="color:#888">(${p.place})</span><br>` +
-        `Candidate vertiport · suitability <b>${p.score}</b><br>~${p.dist} m off the primary route<br><br>` +
-        `<b>Demand within 900 m:</b><br>${served}`)
+        `Candidate vertiport · suitability <b>${p.score}</b><br>~${p.dist} m off the primary route` +
+        (p.reason ? `<br><br><b>Why here:</b> ${p.reason}` : '') +
+        `<br><br><b>Demand within 900 m:</b><br>${served}`)
       .addTo(routeVertiports);
   });
 

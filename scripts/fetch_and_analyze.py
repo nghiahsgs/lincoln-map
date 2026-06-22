@@ -454,8 +454,17 @@ def corridor_vertiports(corridor_osm, route_wps):
             kept.append(c)
     # order south->north along the corridor and number them
     kept.sort(key=lambda x: x["lat"])
+    order = ["hospital", "transport", "university", "retail", "community", "school", "park", "food"]
     for i, k in enumerate(kept, 1):
         k["id"] = f"C{i}"
+        top = [(c, k["served"][c]) for c in order if c in k["served"]][:3]
+        drivers = ", ".join(f"{n} {CATEGORIES[c]['label'].lower()}" for c, n in top) or "a small settlement"
+        anchors = [c for c in ("hospital", "transport", "university") if c in k["served"]]
+        why = (f"Real OSM village {k['dist']} m off the route; serves {drivers} within 900 m "
+               f"(suitability {k['score']}).")
+        if anchors:
+            why += " High-value: " + "/".join(CATEGORIES[a]["label"] for a in anchors) + " nearby."
+        k["reason"] = why
     return kept, sorted(set(excluded))
 
 def build_route(emergency_osm, corridor_osm):
@@ -515,7 +524,8 @@ def build_route(emergency_osm, corridor_osm):
     vertiport_fc = fc([
         point_feature(v["lat"], v["lon"],
                       dict(id=v["id"], name=v["name"], place=v["place"],
-                           score=v["score"], served=v["served"], dist=v["dist"]))
+                           score=v["score"], served=v["served"], dist=v["dist"],
+                           reason=v["reason"]))
         for v in cvs
     ])
     return dict(
