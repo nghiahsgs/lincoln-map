@@ -36,21 +36,10 @@ METHERINGHAM = (53.1416, -0.3930)  # village pickup pad (public place)
 DESTINATION  = (53.2348, -0.5398)  # Bailgate landing pad by the Castle / Castle View restaurant
 WADDINGTON_ATZ = 4630.0            # ~2.5 NM Aerodrome Traffic Zone — hard exclusion
 WADDINGTON_MATZ = 9260.0           # ~5 NM MATZ — coordinate to cross
+ATZ_MARGIN = 250.0                 # safety buffer kept outside the ATZ edge (m)
 
-# Corridor study area for emergency-landing search (covers all 3 routes)
+# Corridor study area for emergency-landing search (covers all routes)
 ROUTE_BBOX = (53.090, -0.660, 53.250, -0.380)
-
-ROUTES = [
-    dict(id="direct", name="Direct line (shortest)", kind="blocked", color="#e74c3c",
-         note="Shortest A→B, but its closest approach breaches Waddington's ATZ → rejected by the data filter before planning.",
-         waypoints=[METHERINGHAM, DESTINATION]),
-    dict(id="east", name="East detour (primary)", kind="primary", color="#16a34a",
-         note="Bows east/north of Waddington, then approaches Lincoln from the east. Loaded as the main route.",
-         waypoints=[METHERINGHAM, (53.205, -0.440), DESTINATION]),
-    dict(id="west", name="West detour (backup, pre-loaded)", kind="backup", color="#0984e3",
-         note="Swings south then well west of Waddington. Pre-loaded on board so it can activate instantly if the east corridor closes mid-flight (scenario B).",
-         waypoints=[METHERINGHAM, (53.105, -0.470), (53.120, -0.640), (53.230, -0.630), DESTINATION]),
-]
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..")
 DATA_JS = os.path.join(OUT_DIR, "data.js")
@@ -196,6 +185,60 @@ def dist_to_route(p, wps):
     """closest distance (m) from a point to a polyline."""
     return min(seg_dist_m(p, wps[i], wps[i + 1]) for i in range(len(wps) - 1))
 
+# ---- shortest path that avoids a circular no-fly disc (real geometry) ----
+# Classic result: if the straight A->B segment enters a disc (centre C, radius r),
+# the shortest avoiding path "hugs" the circle: tangent A->circle, an arc along the
+# rim, tangent circle->B. There are two ways round (clockwise / anticlockwise); the
+# shorter is the primary route, the longer is the contingency. Nothing is hand-drawn.
+
+def _ll_to_xy(p, ref_lat):
+    return (p[1] * math.cos(math.radians(ref_lat)) * 111320.0, p[0] * 110540.0)
+
+def _xy_to_ll(xy, ref_lat):
+    x, y = xy
+    return (y / 110540.0, x / (math.cos(math.radians(ref_lat)) * 111320.0))
+
+def _seg_hits_disc(a, b, c, r):
+    """does segment a-b (xy) come within r of centre c?"""
+    ax, ay = a; bx, by = b; cx, cy = c
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    if L2 == 0:
+        return math.hypot(cx - ax, cy - ay) < r
+    t = max(0.0, min(1.0, ((cx - ax) * dx + (cy - ay) * dy) / L2))
+    return math.hypot(cx - (ax + t * dx), cy - (ay + t * dy)) < r
+
+def tangent_detour(A, B, C, r, samples=26):
+    """Return {'straight':bool, 'routes':[(name, [latlon...]), ...]}.
+    routes is the two wrap-around options sorted shortest-first; if the straight
+    line is already clear, returns it as the single route."""
+    ref = C[0]
+    a, b, c = _ll_to_xy(A, ref), _ll_to_xy(B, ref), _ll_to_xy(C, ref)
+    if not _seg_hits_disc(a, b, c, r):
+        return dict(straight=True, routes=[("clear", [A, B])])
+
+    def ang_of(P):  # position angle of P seen from centre, and tangent half-angle
+        d = math.hypot(P[0] - c[0], P[1] - c[1])
+        return math.atan2(P[1] - c[1], P[0] - c[0]), math.acos(max(-1.0, min(1.0, r / d)))
+
+    alphaA, betaA = ang_of(a)
+    alphaB, betaB = ang_of(b)
+    out = []
+    for name, s in (("ccw", 1), ("cw", -1)):
+        thA = alphaA + s * betaA          # tangent point leaving A
+        thB = alphaB - s * betaB          # tangent point arriving at B
+        sweep = ((thB - thA) % (2 * math.pi)) if s == 1 else ((thA - thB) % (2 * math.pi))
+        arc = []
+        for i in range(samples + 1):
+            ang = thA + (s * sweep) * (i / samples)
+            arc.append((c[0] + r * math.cos(ang), c[1] + r * math.sin(ang)))
+        xy_path = [a] + arc + [b]
+        latlon = [A] + [_xy_to_ll(p, ref) for p in arc] + [B]
+        length = sum(metres(latlon[i], latlon[i + 1]) for i in range(len(latlon) - 1))
+        out.append((length, name, latlon))
+    out.sort(key=lambda x: x[0])
+    return dict(straight=False, routes=[(n, ll) for _, n, ll in out])
+
 def suitability(points):
     """Grid-based suitability. Each cell scored by weighted demand within RADIUS,
     minus hard exclusion (Cathedral / Waddington FRZ). Candidates = spaced local
@@ -328,20 +371,50 @@ def emergency_sites(osm, corridor_wps, max_dist=1600.0, keep=14):
     return raw[:keep]
 
 def build_route(emergency_osm):
-    routes_out = []
-    for r in ROUTES:
-        wps = r["waypoints"]
-        length, clear = route_metrics(wps)
+    avoid_r = WADDINGTON_ATZ + ATZ_MARGIN   # stay this far from the ATZ centre
+
+    # 1) the naive direct line — kept to SHOW it is blocked
+    direct_len, direct_clear = route_metrics([METHERINGHAM, DESTINATION])
+    routes_out = [dict(
+        id="direct", name="Direct line (shortest)", kind="blocked", color="#e74c3c",
+        note="Shortest A→B, but it enters Waddington's ATZ → rejected by the data filter before planning.",
+        coords=[[METHERINGHAM[0], METHERINGHAM[1]], [DESTINATION[0], DESTINATION[1]]],
+        length_km=round(direct_len / 1000, 1),
+        clearance_m=round(direct_clear),
+        breaches_atz=direct_clear < WADDINGTON_ATZ,
+    )]
+
+    # 2) algorithm: shortest paths that hug the ATZ disc (two ways round)
+    det = tangent_detour(METHERINGHAM, DESTINATION, WADDINGTON, avoid_r)
+    meta_by_name = {
+        "ccw": dict(side="east"), "cw": dict(side="west"), "clear": dict(side="direct"),
+    }
+    kinds = ["primary", "backup"]
+    colors = {"primary": "#16a34a", "backup": "#0984e3"}
+    for i, (name, latlon) in enumerate(det["routes"]):
+        length, clear = route_metrics(latlon)
+        kind = kinds[i] if i < len(kinds) else "alt"
+        side = meta_by_name.get(name, {}).get("side", "")
+        label = {"primary": "Tangent detour (primary)",
+                 "backup": "Tangent detour (backup, pre-loaded)"}.get(kind, "Route")
+        note = ("Shortest legal path: flies tangent to the ATZ edge, hugs the rim, "
+                "tangent out — computed, not drawn. This is the main route."
+                if kind == "primary" else
+                "The other way round the ATZ (longer). Pre-loaded on board so it can "
+                "activate instantly if the primary corridor closes mid-flight (scenario B).")
         routes_out.append(dict(
-            id=r["id"], name=r["name"], kind=r["kind"], color=r["color"], note=r["note"],
-            coords=[[lat, lon] for (lat, lon) in wps],   # [lat,lon] for Leaflet
+            id=name, name=f"{label} — {side} side", kind=kind, color=colors.get(kind, "#888"),
+            note=note,
+            coords=[[lat, lon] for (lat, lon) in latlon],
             length_km=round(length / 1000, 1),
             clearance_m=round(clear),
             breaches_atz=clear < WADDINGTON_ATZ,
         ))
-    # emergency-landing candidates within the corridor of the primary (east) route
-    east_wps = next(r["waypoints"] for r in ROUTES if r["id"] == "east")
-    emg = emergency_sites(emergency_osm, east_wps)
+
+    # emergency-landing candidates within the corridor of the PRIMARY route
+    primary_ll = next(([ (c[0], c[1]) for c in r["coords"] ]
+                       for r in routes_out if r["kind"] == "primary"), [METHERINGHAM, DESTINATION])
+    emg = emergency_sites(emergency_osm, primary_ll)
     emergency_fc = fc([
         point_feature(e["lat"], e["lon"],
                       dict(name=e["name"] or "(unnamed open space)",

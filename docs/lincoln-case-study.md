@@ -28,15 +28,15 @@ City-centre reference (Brayford Pool): **53.2268° N, 0.5430° W**.
 
 The scenario is **one flight**: a village pickup at **Metheringham** (53.1416° N, 0.3930° W) to a dinner table at **Castle View Restaurant** by Lincoln Castle (landing pad at Bailgate, 53.2348° N, 0.5398° W), then the return leg. The GIS job here is not to optimise a city — it is to **circle the real things along this 16 km line** that decide whether the flight is possible.
 
-**The key finding — shortest ≠ flyable.** Each route's length and its *closest approach* to RAF Waddington are computed from the waypoint geometry (`scripts/fetch_and_analyze.py`), then compared against the **~2.5 NM (4 630 m) Aerodrome Traffic Zone** — a hard exclusion:
+**The key finding — shortest ≠ flyable.** The flyable routes are **not hand-drawn**: they are produced by a standard obstacle-avoidance computation. If the straight Metheringham→Lincoln segment enters the **~2.5 NM (4 630 m) Aerodrome Traffic Zone**, the shortest legal path *hugs* the zone — fly tangent to the rim, follow an arc around it (here with a 250 m safety margin), then tangent out. The circle can be passed two ways; the shorter is the primary route, the longer is the contingency. Each route's length and its computed *closest approach* to Waddington (`scripts/fetch_and_analyze.py`):
 
 | Route | Length | Closest approach to Waddington | Verdict |
 |-------|-------:|-------------------------------:|---------|
 | **Direct line** (shortest) | **14.2 km** | **4 461 m** | **Breaches the ATZ ✕** — rejected by the data filter *before* planning |
-| **East detour** (primary) | 15.1 km | 6 330 m | Clears ATZ ✔ — only +0.9 km; flown as the main route |
-| **West detour** (backup) | 36.2 km | 6 173 m | Clears ATZ ✔ — but **2.4× longer**; pre-loaded only as an in-flight contingency |
+| **Tangent detour, east** (primary) | 14.2 km | 4 880 m | Clears ATZ ✔ — hugs the rim, barely longer than direct; flown as the main route |
+| **Tangent detour, west** (backup) | 25.3 km | 4 875 m | Clears ATZ ✔ — the other way round, **1.8× longer**; pre-loaded only as an in-flight contingency |
 
-This is exactly why the report's data pipeline (filter gate "impact/space") and its in-flight re-routing (scenario B — east corridor closes) are not abstract: the direct line is genuinely blocked, the east route is the cheap legal path, and the west route is a real but expensive fallback that an eVTOL would only take in an emergency.
+Because the direct line only *clips* the ATZ, the minimal east detour that hugs the rim is barely longer than the straight line (≈14.2 km) — the algorithm finds it automatically. Going the other way (west) around the same zone is much longer (25.3 km), which is why an eVTOL would only take it in an emergency. This is exactly why the report's data pipeline (filter gate "impact/space") and its in-flight re-routing (scenario B — primary corridor closes) are concrete, not abstract.
 
 **Mapped constraints along the corridor:**
 
@@ -46,7 +46,7 @@ This is exactly why the report's data pipeline (filter gate "impact/space") and 
 
 See **Tab 1 "Flight route"** in `index.html` for the interactive corridor map.
 
-> **Honesty note:** the two endpoints and RAF coordinates are real public places; the route polylines are *illustrative* corridors (waypoint geometry), not CAA-approved tracks, and the ATZ/MATZ are standard buffer radii — verify against the UK AIP before any real operation. The **lengths, clearances and emergency sites are real computed/sourced values**, not invented.
+> **Honesty note:** the two endpoints and RAF coordinates are real public places; the route geometry is **computed** (tangent-to-circle avoidance), not hand-drawn, and the lengths, clearances and emergency sites are real computed/sourced values. The remaining approximations are stated plainly: the ATZ/MATZ are standard buffer radii (not the exact UK AIP boundary), the avoidance considers the ATZ disc only (MATZ is treated as coordinate-to-cross, not a hard barrier), and distances use an equirectangular projection. Verify against the UK AIP before any real operation.
 
 ---
 
@@ -139,7 +139,7 @@ The latest run derives **19 vertiports** reaching **~87% weighted demand coverag
 
 ## 3.8 Summary for the technical sections
 
-- **The route is the deliverable** — the direct line (14.2 km) *breaches* Waddington's ATZ (4 461 m < 4 630 m); the east detour (15.1 km) is the cheap legal path; the west backup (36.2 km) is a real but costly contingency. These numbers feed the filter gate and the in-flight re-routing logic.
+- **The route is the deliverable, and it is computed not drawn** — a tangent-to-circle avoidance hugs the ATZ rim. The direct line (14.2 km) *breaches* Waddington's ATZ (4 461 m < 4 630 m); the primary east detour (14.2 km) clears it at the rim; the west backup (25.3 km) is the costlier way round. These numbers feed the filter gate and the in-flight re-routing logic.
 - **Emergency set-down is mapped, not assumed** — 14 real open surfaces from OSM along the corridor populate the "Emergency" data layer.
 - **Demand is real and reproducible** — 740 OSM POIs, not invented points; the suitability model *derives* the Bailgate-area landing pad rather than asserting it.
 - **Design for a 120 m AGL ceiling**, CAA coordination with RAF Waddington, the Cathedral obstacle on the final approach, and weather downtime from fog and ridge turbulence.
