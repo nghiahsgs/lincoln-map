@@ -327,10 +327,14 @@
     if (p.matz) L.circle([lat, lon], { radius:p.matz, color:'#9b59b6', weight:2, dashArray:'8,8',
         fillColor:'#9b59b6', fillOpacity:.08 })
       .bindPopup(`<b>${p.name} — MATZ (~5 NM)</b><br>Military advisory / coordination zone.`).addTo(airspace);
-    L.circle([lat, lon], { radius:p.frz, color:'#f1c40f', weight:2,
-        dashArray: p.status==='closing'?'3,5':null, fillColor:'#f1c40f',
-        fillOpacity: p.status==='closing'?.07:.16 })
-      .bindPopup(`<b>${p.name} — FRZ (5 km)</b> · ${p.status}<br>${p.note}`).addTo(airspace);
+    // Waddington's FRZ is already drawn as the EGRU319 polygon above — skip the
+    // redundant yellow 5 km circle for it; keep it for sites without a polygon.
+    if (p.name !== 'RAF Waddington') {
+      L.circle([lat, lon], { radius:p.frz, color:'#f1c40f', weight:2,
+          dashArray: p.status==='closing'?'3,5':null, fillColor:'#f1c40f',
+          fillOpacity: p.status==='closing'?.07:.16 })
+        .bindPopup(`<b>${p.name} — FRZ (5 km)</b> · ${p.status}<br>${p.note}`).addTo(airspace);
+    }
     L.circleMarker([lat, lon], { radius:6, color:'#fff', weight:2, fillColor:'#f1c40f', fillOpacity:1 })
       .bindPopup(`<b>${p.name}</b> (${p.status})<br>${p.note}`).addTo(airspace);
   });
