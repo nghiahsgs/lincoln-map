@@ -117,7 +117,6 @@
 
         <h2>Analysis layers</h2>
         <label class="toggle"><input type="checkbox" id="t-heat" checked> Demand heatmap</label>
-        <label class="toggle"><input type="checkbox" id="t-cand" checked> Derived vertiports</label>
         <label class="toggle"><input type="checkbox" id="t-obs" checked> Obstacle no-fly zones</label>
         <label class="toggle"><input type="checkbox" id="t-air" checked> Military airspace (FRZ/MATZ)</label>
       </div>
@@ -339,22 +338,9 @@
       .bindPopup(`<b>${p.name}</b> (${p.status})<br>${p.note}`).addTo(airspace);
   });
 
-  const candidates = L.layerGroup();
-  const vIcon = (id) => L.divIcon({ className:'',
-    html:`<div style="width:26px;height:26px;border-radius:50%;background:#16a34a;border:3px solid #fff;
-          box-shadow:0 0 0 1px rgba(0,0,0,.5)"><div class="vlabel">${id.replace('V','')}</div></div>`,
-    iconSize:[26,26], iconAnchor:[13,13] });
-  D.candidates.features.forEach(f => {
-    const [lon, lat] = f.geometry.coordinates; const p = f.properties;
-    const served = Object.entries(p.served).sort((a,b)=>b[1]-a[1])
-      .map(([k,v]) => `${v}× ${CATS[k]?CATS[k].label:k}`).join('<br>');
-    const anchors = (p.anchors||[]).length ? `<br><i>Anchors:</i> ${p.anchors.join(', ')}` : '';
-    const cov = p.coverage!=null ? ` · cumulative coverage ${Math.round(p.coverage*100)}%` : '';
-    L.marker([lat, lon], { icon: vIcon(p.id), zIndexOffset: 1000 })
-      .bindPopup(`<b>${p.id} — derived vertiport</b><br>Suitability score <b>${p.score}</b>`+
-        `${p.open?' · near open space ✔':''}${cov}<br><br><b>Demand within 650 m:</b><br>${served}${anchors}`)
-      .addTo(candidates);
-  });
+  // Derived-vertiport markers are intentionally NOT shown on the City tab — they
+  // duplicated/confused the corridor vertiports on the Flight-route tab. The
+  // suitability analysis still runs (the site count + coverage feed the pill).
 
   /* =====================================================================
      SIDEBAR TEXT + TOGGLE WIRING
@@ -416,7 +402,7 @@
     ['t-routes', routeLines], ['t-endpoints', routeEndpoints], ['t-cverts', routeVertiports],
   ];
   const CITY_LAYERS = [
-    ['t-heat', heat], ['t-cand', candidates], ['t-obs', obstacles], ['t-air', airspace],
+    ['t-heat', heat], ['t-obs', obstacles], ['t-air', airspace],
   ];
   function wire(pairs) {
     pairs.forEach(([id, layer]) => {
