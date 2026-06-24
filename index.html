@@ -49,7 +49,7 @@
   <aside id="side">
     <div class="pad">
       <h1>Lincoln UAM — Data &amp; GIS</h1>
-      <p class="sub">Section 3 (Ly). Real OpenStreetMap data + CAA constraints.</p>
+      <p class="sub">Section 3 (Ly). Real OpenStreetMap data + CAA/NATS-style constraints.</p>
 
       <div class="tabs">
         <div class="tab active" id="tab-route" onclick="showTab('route')">🛫 Flight route</div>
@@ -67,9 +67,9 @@
 
         <h2>The scenario</h2>
         <div class="step"><b>1.</b> One eVTOL taxi flight: village pickup → a dinner table in Lincoln, then back.</div>
-        <div class="step"><b>2.</b> The <b>direct line is shortest but breaches RAF Waddington's ATZ</b> → the data filter rejects it before planning.</div>
+        <div class="step"><b>2.</b> The <b>direct line is shortest but breaches EGRU319 Waddington FRZ</b> → the data filter rejects it before planning.</div>
         <div class="step"><b>3.</b> A <b>primary (east)</b> route flies; a <b>backup (west)</b> is pre-loaded for in-flight re-routing.</div>
-        <div class="step"><b>4.</b> <b>Vertiports</b> are real open land (pitches, recreation grounds, parks) near demand &amp; outside the ATZ — <span id="cv-note">…</span>.</div>
+        <div class="step"><b>4.</b> <b>Vertiports</b> are real open land (pitches, recreation grounds, parks) near demand &amp; outside the FRZ — <span id="cv-note">…</span>.</div>
         <div class="step"><b>5.</b> Open land along the route with no demand nearby stays as <b>emergency set-down</b> only.</div>
 
         <h2>Routes</h2>
@@ -79,21 +79,21 @@
         <label class="toggle"><input type="checkbox" id="t-routes" checked> Flight routes</label>
         <label class="toggle"><input type="checkbox" id="t-endpoints" checked> Pickup / landing pads</label>
         <label class="toggle"><input type="checkbox" id="t-cverts" checked> Corridor vertiports (villages)</label>
-        <label class="toggle"><input type="checkbox" id="t-rair" checked> RAF Waddington ATZ / MATZ / EGD324A</label>
+        <label class="toggle"><input type="checkbox" id="t-rair" checked> EGRU319 Waddington FRZ / MATZ</label>
         <label class="toggle"><input type="checkbox" id="t-rcath" checked> Cathedral obstacle</label>
         <label class="toggle"><input type="checkbox" id="t-emg" checked> Emergency landing sites</label>
 
         <p class="note">
           <b>Vertiports are land-first:</b> the candidates are real open parcels from OSM (sports
-          pitches, recreation grounds, parks, open grass). We drop any inside the ATZ, keep those
+          pitches, recreation grounds, parks, open grass). We drop any inside the FRZ, keep those
           within 2.5 km of the route that also have demand within 900 m, and rank by demand — so each
-          pad sits on a surface you can actually land on. Villages swallowed by the ATZ
+          pad sits on a surface you can actually land on. Villages swallowed by the FRZ
           <span id="cvert-excluded"></span> cannot host one.
-          The detours are <b>computed</b>, not drawn: a tangent-to-circle avoidance hugs the ATZ rim
-          (250 m margin), the two ways round giving the primary + backup. The polygon over Waddington is a
-          simplified EGD324A-style protected airspace shape, cross-checked visually against Drone Safety Map / Altitude Angel.
-          Lengths and closest-approach distances are real. Endpoints/RAF coords are real public places; the ATZ/MATZ are standard
-          buffer radii — verify against the UK AIP/NATS AIS before any real operation.
+          The detours are <b>computed</b>, not drawn: a tangent-to-circle avoidance hugs the FRZ rim
+          (250 m margin), the two ways round giving the primary + backup. The Waddington protected area is shown as a
+          simplified <b>EGRU319 WADDINGTON Flight Restriction Zone</b> shape (circle with two extensions), cross-checked visually
+          against Drone Safety Map / Altitude Angel. Lengths and closest-approach distances are real. Endpoints/RAF coords are
+          real public places; verify against the UK AIP/NATS AIS before any real operation.
         </p>
       </div>
 
@@ -160,15 +160,26 @@
      ===================================================================== */
   const R = D.route;
 
-  // Simplified polygon matching the visible Waddington protected / EGD324A-style airspace
-  // shape from Drone Safety Map / Altitude Angel. It is a visual planning constraint, not
-  // authoritative navigation data.
-  const WADDINGTON_EGD324A_POLY = [
-    [53.1975, -0.5560], [53.2020, -0.5320], [53.2010, -0.5050], [53.1915, -0.5090],
-    [53.1875, -0.4935], [53.1760, -0.4830], [53.1535, -0.4890], [53.1355, -0.5050],
-    [53.1375, -0.5260], [53.1245, -0.5330], [53.1200, -0.5485], [53.1390, -0.5575],
-    [53.1470, -0.5745], [53.1620, -0.5800], [53.1780, -0.5720], [53.1890, -0.5650]
-  ];
+  // Simplified EGRU319 WADDINGTON Flight Restriction Zone: a 2.5 NM-ish circle
+  // with two visible extensions, matching Drone Safety Map / Altitude Angel more closely.
+  // Visual planning constraint only — not authoritative navigation data.
+  function destPoint(lat, lon, bearingDeg, metres) {
+    const Rm = 6371000, br = bearingDeg * Math.PI / 180;
+    const φ1 = lat * Math.PI / 180, λ1 = lon * Math.PI / 180, δ = metres / Rm;
+    const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(br));
+    const λ2 = λ1 + Math.atan2(Math.sin(br) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2));
+    return [φ2 * 180 / Math.PI, λ2 * 180 / Math.PI];
+  }
+  function makeEgru319(lat, lon, r) {
+    const pts = [];
+    for (let b = 0; b <= 360; b += 5) {
+      if (b === 25) pts.push([53.2030, -0.5130], [53.1995, -0.4920], [53.1845, -0.4975]); // NE extension
+      if (b === 205) pts.push([53.1280, -0.5580], [53.1185, -0.5480], [53.1235, -0.5335]); // SW extension
+      pts.push(destPoint(lat, lon, b, r));
+    }
+    return pts;
+  }
+  const WADDINGTON_EGRU319_POLY = makeEgru319(53.1662, -0.5240, 4630);
 
   const routeLines = L.layerGroup();
   const routeEndpoints = L.layerGroup();
@@ -187,8 +198,8 @@
     }).bindPopup(
       `<b>${rt.name}</b><br>Length <b>${rt.length_km} km</b>` +
       `<br>Closest to Waddington: <b>${rt.clearance_m} m</b> ` +
-      (rt.breaches_atz ? '— <span style="color:#e74c3c">breaches ATZ ✕</span>'
-                       : '— clears ATZ ✔') +
+      (rt.breaches_atz ? '— <span style="color:#e74c3c">breaches EGRU319 FRZ ✕</span>'
+                       : '— clears EGRU319 FRZ ✔') +
       `<br><br>${rt.note}`
     ).addTo(routeLines);
   });
@@ -199,22 +210,20 @@
   L.marker([R.end.lat, R.end.lon], { icon: emojiIcon('🍽️', '#9d4edd'), zIndexOffset: 1200 })
     .bindPopup(`<b>${R.end.name}</b><br>5 min walk to the table.`).addTo(routeEndpoints);
 
-  // Waddington ATZ (hard) + MATZ (coordinate)
+  // Waddington EGRU319 FRZ (hard) + MATZ (advisory)
   const wad = R.waddington;
   L.circle([wad.lat, wad.lon], { radius: wad.matz, color:'#9b59b6', weight:2, dashArray:'8,8',
       fillColor:'#9b59b6', fillOpacity:.06 })
     .bindPopup(`<b>${wad.name} — MATZ (~5 NM)</b><br>Military advisory / coordination zone, not automatic no-fly.`).addTo(routeAirspace);
-  L.polygon(WADDINGTON_EGD324A_POLY, { color:'#b0174f', weight:3,
-      fillColor:'#f39c12', fillOpacity:.22 })
-    .bindPopup(`<b>EGD324A Waddington Low — simplified polygon</b><br>` +
-      `Protected / danger-style airspace around RAF Waddington shown from CAA/NATS concepts and cross-checked visually with Drone Safety Map / Altitude Angel.<br>` +
-      `<b>Prototype rule:</b> treat as a hard route-planning constraint unless permissions, activation status and altitude allow.`)
+  L.polygon(WADDINGTON_EGRU319_POLY, { color:'#b0174f', weight:3,
+      fillColor:'#f39c12', fillOpacity:.24 })
+    .bindPopup(`<b>EGRU319 WADDINGTON — Flight Restriction Zone</b><br>` +
+      `Simplified circle-with-extensions shape cross-checked visually with Drone Safety Map / Altitude Angel.<br>` +
+      `<b>Vertical limits:</b> Surface to 2000 ft AGL.<br>` +
+      `<b>Prototype rule:</b> hard exclusion unless permission / activation / altitude allows.`)
     .addTo(routeAirspace);
-  L.circle([wad.lat, wad.lon], { radius: wad.atz, color:'#e74c3c', weight:2,
-      fillColor:'#e74c3c', fillOpacity:.12 })
-    .bindPopup(`<b>${wad.name} — ATZ (~2.5 NM)</b><br><b>Hard exclusion.</b> The direct line clips this → rejected.`).addTo(routeAirspace);
   L.circleMarker([wad.lat, wad.lon], { radius:6, color:'#fff', weight:2, fillColor:'#e74c3c', fillOpacity:1 })
-    .bindPopup(`<b>${wad.name}</b> (active — RC-135 / ISTAR)`).addTo(routeAirspace);
+    .bindPopup(`<b>${wad.name}</b><br>EGRU319 WADDINGTON FRZ · Surface–2000 ft AGL`).addTo(routeAirspace);
 
   // Cathedral obstacle at the destination
   const ca = R.cathedral;
@@ -278,9 +287,9 @@
   D.airspace.features.forEach(f => {
     const [lon, lat] = f.geometry.coordinates; const p = f.properties;
     if (p.name === 'RAF Waddington') {
-      L.polygon(WADDINGTON_EGD324A_POLY, { color:'#b0174f', weight:3,
-          fillColor:'#f39c12', fillOpacity:.18 })
-        .bindPopup(`<b>EGD324A Waddington Low — simplified polygon</b><br>Visual airspace constraint based on CAA/NATS concepts; cross-checked with Drone Safety Map / Altitude Angel.`)
+      L.polygon(WADDINGTON_EGRU319_POLY, { color:'#b0174f', weight:3,
+          fillColor:'#f39c12', fillOpacity:.20 })
+        .bindPopup(`<b>EGRU319 WADDINGTON — Flight Restriction Zone</b><br>Surface to 2000 ft AGL. Simplified shape cross-checked with Drone Safety Map / Altitude Angel.`)
         .addTo(airspace);
     }
     if (p.matz) L.circle([lat, lon], { radius:p.matz, color:'#9b59b6', weight:2, dashArray:'8,8',
@@ -325,14 +334,14 @@
   const nCv = R.vertiports ? R.vertiports.features.length : 0;
   const nDrop = R.vertiports_excluded_parcels || 0;
   document.getElementById('cv-note').textContent =
-    nCv + ' chosen, ' + nDrop + ' open parcels rejected for sitting inside the ATZ';
+    nCv + ' chosen, ' + nDrop + ' open parcels rejected for sitting inside the FRZ';
   const rlist = document.getElementById('route-list');
   R.routes.forEach(rt => {
     const div = document.createElement('div');
     div.className = 'rt';
     const tag = rt.breaches_atz
-      ? `<span class="tag tag-bad">breaches ATZ</span>`
-      : `<span class="tag tag-ok">clears ATZ</span>`;
+      ? `<span class="tag tag-bad">breaches FRZ</span>`
+      : `<span class="tag tag-ok">clears FRZ</span>`;
     div.innerHTML = `<span class="swl" style="border-top-color:${rt.color};` +
       `border-top-style:${rt.kind==='primary'?'solid':'dashed'}"></span> ` +
       `<b>${rt.name}</b>${tag}<br>` +
