@@ -171,17 +171,37 @@
     return [φ2 * 180 / Math.PI, λ2 * 180 / Math.PI];
   }
   function makeEgru319(lat, lon, r) {
+    const R2D = 180 / Math.PI;
+    const onCircle = b => destPoint(lat, lon, b, r);
+    // A corner offset along the runway centreline (alongDist) and perpendicular to
+    // it (perpDist, signed). Used to build true rectangular stubs, not angular lobes.
+    const corner = (B, alongDist, perpDist) => {
+      const p = destPoint(lat, lon, B, alongDist);
+      return destPoint(p[0], p[1], (B + 90 + 360) % 360, perpDist);
+    };
+    // Two rectangular stubs along the runway axis (~020°/200°): constant width,
+    // squared-off ends — a circle with a rectangle at each end.
+    const stubs = [
+      { B: 29,  w: 1100, len: 2300 }, // NE
+      { B: 209, w: 1100, len: 1850 }, // SW
+    ].map(s => {
+      const half = Math.asin(s.w / r) * R2D; // angle where the stub edge meets the circle
+      return { ...s, a0: s.B - half, a1: s.B + half, done: false };
+    });
     const pts = [];
-    const add = (b, m = r) => pts.push(destPoint(lat, lon, b, m));
-    // Build one clockwise outline. The earlier version inserted absolute points into
-    // the circle and caused a self-crossing spike. These are proper radial lobes:
-    // circle arc → out → along outer edge → back to circle → continue arc.
-    for (let b = 0; b <= 360; b += 5) {
-      if (b === 20) { add(20); add(20, r + 2300); add(38, r + 2300); add(38); continue; } // NE lobe
-      if (b > 20 && b < 40) continue;
-      if (b === 200) { add(200); add(200, r + 1850); add(218, r + 1850); add(218); continue; } // SW lobe
-      if (b > 200 && b < 220) continue;
-      add(b);
+    for (let b = 0; b <= 360; b += 3) {
+      const s = stubs.find(s => b > s.a0 && b < s.a1);
+      if (s) {
+        if (!s.done) {
+          pts.push(onCircle(s.a0));                 // inner corner, where stub meets circle
+          pts.push(corner(s.B, r + s.len, -s.w));   // far corner (one side)
+          pts.push(corner(s.B, r + s.len,  s.w));   // far corner (other side)
+          pts.push(onCircle(s.a1));                 // inner corner, back onto circle
+          s.done = true;
+        }
+        continue; // skip the circle arc that the rectangle replaces
+      }
+      pts.push(onCircle(b));
     }
     return pts;
   }
