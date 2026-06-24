@@ -68,7 +68,7 @@
         <h2>The scenario</h2>
         <div class="step"><b>1.</b> One eVTOL taxi flight: village pickup → a dinner table in Lincoln, then back.</div>
         <div class="step"><b>2.</b> The <b>direct line is shortest but breaches EGRU319 Waddington FRZ</b> → the data filter rejects it before planning.</div>
-        <div class="step"><b>3.</b> A <b>primary (east)</b> route flies — a wide tangent corridor that bows well clear of the FRZ.</div>
+        <div class="step"><b>3.</b> A single <b>primary (east)</b> route flies — a tangent corridor that bows high and wide, well clear of the FRZ.</div>
         <div class="step"><b>4.</b> <b>Vertiports</b> are real open land (pitches, recreation grounds, parks) near demand &amp; outside the FRZ — <span id="cv-note">…</span>.</div>
         <div class="step"><b>5.</b> Open land along the route with no demand nearby stays as <b>emergency set-down</b> only.</div>
 
@@ -89,9 +89,9 @@
           within 2.5 km of the route that also have demand within 900 m, and rank by demand — so each
           pad sits on a surface you can actually land on. Villages swallowed by the FRZ
           <span id="cvert-excluded"></span> cannot host one.
-          The route is <b>computed</b>, not drawn: a tangent-to-circle avoidance bows wide around the FRZ
-          (~1.9 km stand-off from the edge) on the shorter east side. The Waddington protected area is shown as a
-          simplified <b>EGRU319 WADDINGTON Flight Restriction Zone</b> shape (circle with two extensions), cross-checked visually
+          The route is <b>computed</b>, not drawn: a tangent-to-circle avoidance bows high and wide around the FRZ
+          (~3.4 km stand-off from the edge) on the east side. The Waddington protected area is shown as a
+          simplified <b>EGRU319 WADDINGTON Flight Restriction Zone</b> shape (circle with a squared stub at each end), cross-checked visually
           against Drone Safety Map / Altitude Angel. Lengths and closest-approach distances are real. Endpoints/RAF coords are
           real public places; verify against the UK AIP/NATS AIS before any real operation.
         </p>
@@ -244,7 +244,7 @@
   L.polygon(WADDINGTON_EGRU319_POLY, { color:'#b0174f', weight:3,
       fillColor:'#f39c12', fillOpacity:.20 })
     .bindPopup(`<b>EGRU319 WADDINGTON — Flight Restriction Zone</b><br>` +
-      `Simplified circle-with-two-extensions shape cross-checked visually with Drone Safety Map / Altitude Angel.<br>` +
+      `Simplified circle-with-squared-stubs shape cross-checked visually with Drone Safety Map / Altitude Angel.<br>` +
       `<b>Vertical limits:</b> Surface to 2000 ft AGL.<br>` +
       `<b>Prototype rule:</b> hard exclusion unless permission / activation / altitude allows.`)
     .addTo(routeAirspace);
