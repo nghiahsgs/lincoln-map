@@ -24,6 +24,8 @@ CATHEDRAL = (53.2344, -0.5360)   # ~83 m tall on ~75 m ridge -> ~160 m AMSL
 CASTLE    = (53.2345, -0.5405)
 WADDINGTON = (53.1662, -0.5240)  # active RAF base ~6.5 km south
 SCAMPTON   = (53.3076, -0.5510)  # former Red Arrows base ~8.5 km north
+HMP_LINCOLN = (53.2355149, -0.5176571)  # OSM coords; Cat-B prison ~1.2 km E of Cathedral
+PRISON_FRZ = 400.0               # EGRU337: 400 m FRZ per Air Nav (Restriction of Flying) 2023
 
 # ---- Route scenario (the actual assignment: ONE flight, A -> B -> A) ----
 # "Optimising data in support of platform activity": Metheringham village -> a
@@ -294,10 +296,10 @@ def suitability(points):
         lon = w
         while lon <= e:
             c = (lat, lon)
-            # hard exclusions
-            if metres(c, CATHEDRAL) < CATHEDRAL_NOFLY or metres(c, CASTLE) < CATHEDRAL_NOFLY:
-                lon += dlon; continue
+            # hard exclusions — only published FRZs (Waddington + HMP Lincoln)
             if metres(c, WADDINGTON) < WADDINGTON_FRZ:
+                lon += dlon; continue
+            if metres(c, HMP_LINCOLN) < PRISON_FRZ:  # EGRU337 prison FRZ — hard no-fly
                 lon += dlon; continue
             # demand score (linear decay)
             score = 0.0
@@ -556,7 +558,8 @@ def build_route(emergency_osm, corridor_osm):
         end=dict(lat=DESTINATION[0], lon=DESTINATION[1], name="Bailgate pad — Castle View Restaurant, Lincoln"),
         waddington=dict(lat=WADDINGTON[0], lon=WADDINGTON[1], name="RAF Waddington",
                         atz=WADDINGTON_ATZ, matz=WADDINGTON_MATZ),
-        cathedral=dict(lat=CATHEDRAL[0], lon=CATHEDRAL[1], name="Lincoln Cathedral", radius=400),
+        prison=dict(lat=HMP_LINCOLN[0], lon=HMP_LINCOLN[1],
+                    name="HMP Lincoln — EGRU337 prison FRZ", radius=PRISON_FRZ),
         routes=routes_out,
         emergency=emergency_fc,
         vertiports=vertiport_fc,
@@ -600,10 +603,13 @@ def main():
     final_cover = candidates[-1].get("coverage") if candidates else 0
 
     obstacles = fc([
-        point_feature(*CATHEDRAL, dict(name="Lincoln Cathedral",
-            note="~83 m tall on a ~75 m ridge → top ≈160 m AMSL. Protected heritage. Hard no-fly.", radius=400)),
-        point_feature(*CASTLE, dict(name="Lincoln Castle",
-            note="Norman walls, protected heritage.", radius=250)),
+        # Only regulated, externally-verifiable no-fly zones (cross-checked on Drone
+        # Safety Map / Altitude Angel). The Cathedral/Castle heritage "no-fly" was
+        # dropped — it is not a published FRZ.
+        point_feature(*HMP_LINCOLN, dict(name="HMP Lincoln — EGRU337 prison FRZ",
+            note=("Category-B prison. Air Navigation (Restriction of Flying) "
+                  "(Prisons) Regs 2023 → 400 m Flight Restriction Zone, surface–600 ft AGL. "
+                  "Hard no-fly. OSM coords."), radius=PRISON_FRZ)),
     ])
     airspace = fc([
         point_feature(*WADDINGTON, dict(name="RAF Waddington", status="active",
@@ -621,7 +627,8 @@ def main():
         method=("Vertiport COUNT is coverage-driven (not a fixed cap): keep adding "
                 "spaced (700 m) local maxima of weighted real-OSM demand until 85% of "
                 "weighted demand is within 900 m of a site, or the next site scores "
-                "<5% of the best. Exclusions: Cathedral/Castle 400 m no-fly, Waddington 5 km FRZ."),
+                "<5% of the best. Exclusions: HMP Lincoln 400 m prison FRZ, "
+                "Waddington 5 km FRZ."),
     )
 
     payload = dict(

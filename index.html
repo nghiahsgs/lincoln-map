@@ -80,7 +80,7 @@
         <label class="toggle"><input type="checkbox" id="t-endpoints" checked> Pickup / landing pads</label>
         <label class="toggle"><input type="checkbox" id="t-cverts" checked> Corridor vertiports (villages)</label>
         <label class="toggle"><input type="checkbox" id="t-rair" checked> EGRU319 Waddington FRZ / MATZ</label>
-        <label class="toggle"><input type="checkbox" id="t-rcath" checked> Cathedral obstacle</label>
+        <label class="toggle"><input type="checkbox" id="t-rprison" checked> HMP Lincoln prison FRZ (EGRU337)</label>
         <label class="toggle"><input type="checkbox" id="t-emg" checked> Emergency landing sites</label>
 
         <p class="note">
@@ -108,7 +108,7 @@
 
         <h2>Method (read me)</h2>
         <div class="step"><b>1.</b> Map real demand from OpenStreetMap (hospitals, schools, restaurants, parks, civic, transport, retail).</div>
-        <div class="step"><b>2.</b> Overlay constraints — Cathedral/Castle no-fly, RAF Waddington 5 km FRZ + MATZ.</div>
+        <div class="step"><b>2.</b> Overlay regulated airspace — RAF Waddington 5 km FRZ + MATZ, HMP Lincoln 400 m prison FRZ.</div>
         <div class="step"><b>3.</b> Score a 120 m grid by weighted demand within 650 m, minus exclusions, +open-space bonus.</div>
         <div class="step"><b>4.</b> Keep adding spaced sites until <b>85% demand coverage</b> → the count is derived, not fixed.</div>
 
@@ -135,7 +135,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-<script src="data.js?v=20260624c"></script>
+<script src="data.js?v=20260624d"></script>
 <script>
   const D = window.LINCOLN_DATA;
   if (!D) {
@@ -210,7 +210,6 @@
   const routeLines = L.layerGroup();
   const routeEndpoints = L.layerGroup();
   const routeAirspace = L.layerGroup();
-  const routeCathedral = L.layerGroup();
   const routeEmergency = L.layerGroup();
 
   // routes
@@ -251,11 +250,18 @@
   L.circleMarker([wad.lat, wad.lon], { radius:6, color:'#fff', weight:2, fillColor:'#e74c3c', fillOpacity:1 })
     .bindPopup(`<b>${wad.name}</b><br>EGRU319 WADDINGTON FRZ · Surface–2000 ft AGL`).addTo(routeAirspace);
 
-  // Cathedral obstacle at the destination
-  const ca = R.cathedral;
-  L.circle([ca.lat, ca.lon], { radius: ca.radius, color:'#e74c3c', weight:2, fillColor:'#e74c3c', fillOpacity:.22 })
-    .bindPopup(`<b>${ca.name}</b><br>~83 m tall on a ridge → top ≈160 m AMSL. Obstacle at the destination approach.`)
-    .addTo(routeCathedral);
+  // HMP Lincoln prison FRZ (EGRU337) — 400 m no-fly ~1.2 km E of the city centre
+  const routePrison = L.layerGroup();
+  const pz = R.prison;
+  if (pz) {
+    L.circle([pz.lat, pz.lon], { radius: pz.radius, color:'#b0174f', weight:2.5,
+        fillColor:'#b0174f', fillOpacity:.22 })
+      .bindPopup(`<b>${pz.name}</b><br>Category-B prison · 400 m Flight Restriction Zone (surface–600 ft AGL).<br>` +
+        `Air Navigation (Restriction of Flying) (Prisons) Regs 2023. Hard no-fly. OSM coords.`)
+      .addTo(routePrison);
+    L.circleMarker([pz.lat, pz.lon], { radius:5, color:'#fff', weight:2, fillColor:'#b0174f', fillOpacity:1 })
+      .bindPopup(`<b>${pz.name}</b><br>EGRU337 prison FRZ · 400 m`).addTo(routePrison);
+  }
 
   // emergency landing surfaces (real OSM)
   R.emergency.features.forEach(f => {
@@ -402,7 +408,7 @@
 
   // generic toggle wiring: checkbox -> layer, remembers desired state per tab
   const ROUTE_LAYERS = [
-    ['t-rair', routeAirspace], ['t-rcath', routeCathedral], ['t-emg', routeEmergency],
+    ['t-rair', routeAirspace], ['t-rprison', routePrison], ['t-emg', routeEmergency],
     ['t-routes', routeLines], ['t-endpoints', routeEndpoints], ['t-cverts', routeVertiports],
   ];
   const CITY_LAYERS = [
