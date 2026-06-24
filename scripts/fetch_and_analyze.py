@@ -37,6 +37,7 @@ DESTINATION  = (53.2348, -0.5398)  # Bailgate landing pad by the Castle / Castle
 WADDINGTON_ATZ = 4630.0            # ~2.5 NM Aerodrome Traffic Zone — hard exclusion
 WADDINGTON_MATZ = 9260.0           # ~5 NM MATZ — coordinate to cross
 ATZ_MARGIN = 250.0                 # safety buffer kept outside the ATZ edge (m)
+ROUTE_MARGIN = 1870.0              # stand-off the flown corridor keeps from the ATZ edge (m)
 
 # Corridor study area for emergency-landing search (covers all routes)
 ROUTE_BBOX = (53.090, -0.660, 53.250, -0.380)
@@ -495,7 +496,9 @@ def corridor_vertiports(parcel_osm, demand_osm, route_wps):
     return kept, excluded_villages, excluded_parcels
 
 def build_route(emergency_osm, corridor_osm):
-    avoid_r = WADDINGTON_ATZ + ATZ_MARGIN   # stay this far from the ATZ centre
+    # The flown corridor keeps a generous stand-off from the active base (bows the
+    # legal route wider out, well clear of the ATZ edge) rather than hugging the rim.
+    avoid_r = WADDINGTON_ATZ + ROUTE_MARGIN
 
     # 1) the naive direct line — kept to SHOW it is blocked
     direct_len, direct_clear = route_metrics([METHERINGHAM, DESTINATION])
@@ -513,27 +516,20 @@ def build_route(emergency_osm, corridor_osm):
     meta_by_name = {
         "ccw": dict(side="east"), "cw": dict(side="west"), "clear": dict(side="direct"),
     }
-    kinds = ["primary", "backup"]
-    colors = {"primary": "#16a34a", "backup": "#0984e3"}
-    for i, (name, latlon) in enumerate(det["routes"]):
-        length, clear = route_metrics(latlon)
-        kind = kinds[i] if i < len(kinds) else "alt"
-        side = meta_by_name.get(name, {}).get("side", "")
-        label = {"primary": "Tangent detour (primary)",
-                 "backup": "Tangent detour (backup, pre-loaded)"}.get(kind, "Route")
-        note = ("Shortest legal path: flies tangent to the ATZ edge, hugs the rim, "
-                "tangent out — computed, not drawn. This is the main route."
-                if kind == "primary" else
-                "The other way round the ATZ (longer). Pre-loaded on board so it can "
-                "activate instantly if the primary corridor closes mid-flight (scenario B).")
-        routes_out.append(dict(
-            id=name, name=f"{label} — {side} side", kind=kind, color=colors.get(kind, "#888"),
-            note=note,
-            coords=[[lat, lon] for (lat, lon) in latlon],
-            length_km=round(length / 1000, 1),
-            clearance_m=round(clear),
-            breaches_atz=clear < WADDINGTON_ATZ,
-        ))
+    # Only the shorter way round is flown (primary). The longer contingency is omitted.
+    name, latlon = det["routes"][0]
+    length, clear = route_metrics(latlon)
+    side = meta_by_name.get(name, {}).get("side", "")
+    note = ("Shortest legal path: flies a wide tangent corridor around the ATZ, "
+            "well clear of the rim, tangent out — computed, not drawn. This is the main route.")
+    routes_out.append(dict(
+        id=name, name=f"Tangent detour (primary) — {side} side", kind="primary", color="#16a34a",
+        note=note,
+        coords=[[lat, lon] for (lat, lon) in latlon],
+        length_km=round(length / 1000, 1),
+        clearance_m=round(clear),
+        breaches_atz=clear < WADDINGTON_ATZ,
+    ))
 
     # emergency-landing candidates within the corridor of the PRIMARY route
     primary_ll = next(([ (c[0], c[1]) for c in r["coords"] ]
