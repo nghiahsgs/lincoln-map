@@ -37,7 +37,7 @@ DESTINATION  = (53.2348, -0.5398)  # Bailgate landing pad by the Castle / Castle
 WADDINGTON_ATZ = 4630.0            # ~2.5 NM Aerodrome Traffic Zone — hard exclusion
 WADDINGTON_MATZ = 9260.0           # ~5 NM MATZ — coordinate to cross
 ATZ_MARGIN = 250.0                 # safety buffer kept outside the ATZ edge (m)
-ROUTE_MARGIN = 3370.0             # stand-off the flown corridor keeps from the ATZ edge (m)
+ROUTE_MARGIN = 3870.0             # stand-off the flown corridor keeps from the ATZ edge (m)
 
 # Corridor study area for emergency-landing search (covers all routes)
 ROUTE_BBOX = (53.090, -0.660, 53.250, -0.380)
