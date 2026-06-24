@@ -79,7 +79,7 @@
         <label class="toggle"><input type="checkbox" id="t-routes" checked> Flight routes</label>
         <label class="toggle"><input type="checkbox" id="t-endpoints" checked> Pickup / landing pads</label>
         <label class="toggle"><input type="checkbox" id="t-cverts" checked> Corridor vertiports (villages)</label>
-        <label class="toggle"><input type="checkbox" id="t-rair" checked> RAF Waddington ATZ / MATZ</label>
+        <label class="toggle"><input type="checkbox" id="t-rair" checked> RAF Waddington ATZ / MATZ / EGD324A</label>
         <label class="toggle"><input type="checkbox" id="t-rcath" checked> Cathedral obstacle</label>
         <label class="toggle"><input type="checkbox" id="t-emg" checked> Emergency landing sites</label>
 
@@ -90,9 +90,10 @@
           pad sits on a surface you can actually land on. Villages swallowed by the ATZ
           <span id="cvert-excluded"></span> cannot host one.
           The detours are <b>computed</b>, not drawn: a tangent-to-circle avoidance hugs the ATZ rim
-          (250 m margin), the two ways round giving the primary + backup. Lengths and closest-approach
-          distances are real. Endpoints/RAF coords are real public places; the ATZ/MATZ are standard
-          buffer radii — verify against the UK AIP before any real operation.
+          (250 m margin), the two ways round giving the primary + backup. The polygon over Waddington is a
+          simplified EGD324A-style protected airspace shape, cross-checked visually against Drone Safety Map / Altitude Angel.
+          Lengths and closest-approach distances are real. Endpoints/RAF coords are real public places; the ATZ/MATZ are standard
+          buffer radii — verify against the UK AIP/NATS AIS before any real operation.
         </p>
       </div>
 
@@ -123,8 +124,8 @@
 
       <p class="note">
         <b>Data:</b> live OpenStreetMap via Overpass API (run <code>python3 scripts/fetch_and_analyze.py</code> to refresh).
-        Airfield airspace radii use standard CAA buffer sizes around real RAF coordinates.
-        Academic case study — verify against the UK AIP before any real operation.
+        Airspace layers are simplified from CAA/NATS UK AIP concepts and cross-checked with Drone Safety Map / Altitude Angel.
+        Academic case study — verify against the UK AIP/NATS AIS and NOTAMs before any real operation.
       </p>
     </div>
   </aside>
@@ -158,6 +159,17 @@
      ROUTE MODE LAYERS
      ===================================================================== */
   const R = D.route;
+
+  // Simplified polygon matching the visible Waddington protected / EGD324A-style airspace
+  // shape from Drone Safety Map / Altitude Angel. It is a visual planning constraint, not
+  // authoritative navigation data.
+  const WADDINGTON_EGD324A_POLY = [
+    [53.1975, -0.5560], [53.2020, -0.5320], [53.2010, -0.5050], [53.1915, -0.5090],
+    [53.1875, -0.4935], [53.1760, -0.4830], [53.1535, -0.4890], [53.1355, -0.5050],
+    [53.1375, -0.5260], [53.1245, -0.5330], [53.1200, -0.5485], [53.1390, -0.5575],
+    [53.1470, -0.5745], [53.1620, -0.5800], [53.1780, -0.5720], [53.1890, -0.5650]
+  ];
+
   const routeLines = L.layerGroup();
   const routeEndpoints = L.layerGroup();
   const routeAirspace = L.layerGroup();
@@ -191,9 +203,15 @@
   const wad = R.waddington;
   L.circle([wad.lat, wad.lon], { radius: wad.matz, color:'#9b59b6', weight:2, dashArray:'8,8',
       fillColor:'#9b59b6', fillOpacity:.06 })
-    .bindPopup(`<b>${wad.name} — MATZ (~5 NM)</b><br>Military ATZ influence — coordinate to cross.`).addTo(routeAirspace);
+    .bindPopup(`<b>${wad.name} — MATZ (~5 NM)</b><br>Military advisory / coordination zone, not automatic no-fly.`).addTo(routeAirspace);
+  L.polygon(WADDINGTON_EGD324A_POLY, { color:'#b0174f', weight:3,
+      fillColor:'#f39c12', fillOpacity:.22 })
+    .bindPopup(`<b>EGD324A Waddington Low — simplified polygon</b><br>` +
+      `Protected / danger-style airspace around RAF Waddington shown from CAA/NATS concepts and cross-checked visually with Drone Safety Map / Altitude Angel.<br>` +
+      `<b>Prototype rule:</b> treat as a hard route-planning constraint unless permissions, activation status and altitude allow.`)
+    .addTo(routeAirspace);
   L.circle([wad.lat, wad.lon], { radius: wad.atz, color:'#e74c3c', weight:2,
-      fillColor:'#e74c3c', fillOpacity:.16 })
+      fillColor:'#e74c3c', fillOpacity:.12 })
     .bindPopup(`<b>${wad.name} — ATZ (~2.5 NM)</b><br><b>Hard exclusion.</b> The direct line clips this → rejected.`).addTo(routeAirspace);
   L.circleMarker([wad.lat, wad.lon], { radius:6, color:'#fff', weight:2, fillColor:'#e74c3c', fillOpacity:1 })
     .bindPopup(`<b>${wad.name}</b> (active — RC-135 / ISTAR)`).addTo(routeAirspace);
@@ -259,9 +277,15 @@
   const airspace = L.layerGroup();
   D.airspace.features.forEach(f => {
     const [lon, lat] = f.geometry.coordinates; const p = f.properties;
+    if (p.name === 'RAF Waddington') {
+      L.polygon(WADDINGTON_EGD324A_POLY, { color:'#b0174f', weight:3,
+          fillColor:'#f39c12', fillOpacity:.18 })
+        .bindPopup(`<b>EGD324A Waddington Low — simplified polygon</b><br>Visual airspace constraint based on CAA/NATS concepts; cross-checked with Drone Safety Map / Altitude Angel.`)
+        .addTo(airspace);
+    }
     if (p.matz) L.circle([lat, lon], { radius:p.matz, color:'#9b59b6', weight:2, dashArray:'8,8',
         fillColor:'#9b59b6', fillOpacity:.08 })
-      .bindPopup(`<b>${p.name} — MATZ (~5 NM)</b><br>Military ATZ influence. Coordinate with Approach.`).addTo(airspace);
+      .bindPopup(`<b>${p.name} — MATZ (~5 NM)</b><br>Military advisory / coordination zone.`).addTo(airspace);
     L.circle([lat, lon], { radius:p.frz, color:'#f1c40f', weight:2,
         dashArray: p.status==='closing'?'3,5':null, fillColor:'#f1c40f',
         fillOpacity: p.status==='closing'?.07:.16 })
@@ -343,8 +367,8 @@
 
   // generic toggle wiring: checkbox -> layer, remembers desired state per tab
   const ROUTE_LAYERS = [
-    ['t-routes', routeLines], ['t-endpoints', routeEndpoints], ['t-cverts', routeVertiports],
     ['t-rair', routeAirspace], ['t-rcath', routeCathedral], ['t-emg', routeEmergency],
+    ['t-routes', routeLines], ['t-endpoints', routeEndpoints], ['t-cverts', routeVertiports],
   ];
   const CITY_LAYERS = [
     ['t-heat', heat], ['t-cand', candidates], ['t-obs', obstacles], ['t-air', airspace],
