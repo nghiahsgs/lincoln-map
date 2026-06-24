@@ -16,7 +16,10 @@ No third-party packages — uses only the Python standard library.
 import json, math, urllib.request, urllib.error, time, sys, os
 
 # ---- Study area: Lincoln, UK (south, west, north, east) ----
-BBOX = (53.180, -0.600, 53.290, -0.470)
+# Extended south + east past the previous 53.180 cut so the southern villages
+# (Waddington, Bracebridge Heath, Coleby, Branston, Potterhanworth, Nocton…) and
+# the whole Waddington FRZ are actually queried — not clipped to artificial 0.
+BBOX = (53.115, -0.600, 53.290, -0.420)
 CENTER = (53.2268, -0.5430)  # Brayford Pool
 
 # Known fixed obstacles / airfields (real coordinates, public knowledge)
